@@ -3,7 +3,10 @@ from pathlib import Path
 
 from subksef.conversion.convert import convert, output_paths, suggested_target
 from subksef.invoice.epp import read_epp
-from subksef.invoice.fa3 import InvoiceReadError, read_invoice
+from subksef.invoice.fa3 import Invoice, InvoiceReadError, read_invoice
+from subksef.ui.edit_frame import EditFrame
+from subksef.ui.goods_panel import GoodsPanel
+from subksef.ui.missing_frame import MissingFrame
 from subksef.ui.preview_frame import PreviewFrame
 
 SOURCE_WILDCARD = (
@@ -13,9 +16,19 @@ SOURCE_WILDCARD = (
 )
 
 
+def _find_goods(window: wx.Window) -> GoodsPanel | None:
+    if isinstance(window, GoodsPanel):
+        return window
+    for child in window.GetChildren():
+        found = _find_goods(child)
+        if found is not None:
+            return found
+    return None
+
+
 class MainFrame(wx.Frame):
     def __init__(self):
-        super().__init__(None, title="Subksef", size=(760, 280))
+        super().__init__(None, title="Subksef", size=(900, 560))
         self.SetBackgroundColour(wx.WHITE)
 
         panel = wx.Panel(self)
@@ -27,40 +40,56 @@ class MainFrame(wx.Frame):
         title_font.SetWeight(wx.FONTWEIGHT_BOLD)
         title.SetFont(title_font)
 
-        source_label = wx.StaticText(panel, label="Plik źródłowy")
-        self.source_path = wx.TextCtrl(panel)
-        source_button = wx.Button(panel, label="Wybierz")
+        notebook = wx.Notebook(panel)
+        invoice_page = wx.Panel(notebook)
+        invoice_page.SetBackgroundColour(wx.WHITE)
+        notebook.AddPage(invoice_page, "Faktury")
+        notebook.AddPage(GoodsPanel(notebook), "Towary")
+
+        source_label = wx.StaticText(invoice_page, label="Plik źródłowy")
+        self.source_path = wx.TextCtrl(invoice_page)
+        source_button = wx.Button(invoice_page, label="Wybierz")
         source_button.Bind(wx.EVT_BUTTON, self.on_choose_source)
-        preview_button = wx.Button(panel, label="Podgląd")
+        preview_button = wx.Button(invoice_page, label="Podgląd")
         preview_button.Bind(wx.EVT_BUTTON, self.on_preview)
+        edit_button = wx.Button(invoice_page, label="Edycja")
+        edit_button.Bind(wx.EVT_BUTTON, self.on_edit)
+        missing_button = wx.Button(invoice_page, label="Niedodane")
+        missing_button.Bind(wx.EVT_BUTTON, self.on_missing)
 
         output_label = wx.StaticText(
-            panel,
+            invoice_page,
             label="Tu powstanie przerobiony plik",
         )
-        self.output_path = wx.TextCtrl(panel)
-        output_button = wx.Button(panel, label="Wybierz")
+        self.output_path = wx.TextCtrl(invoice_page)
+        output_button = wx.Button(invoice_page, label="Wybierz")
         output_button.Bind(wx.EVT_BUTTON, self.on_choose_output)
 
-        convert_button = wx.Button(panel, label="Konwertuj")
+        convert_button = wx.Button(invoice_page, label="Konwertuj")
         convert_button.Bind(wx.EVT_BUTTON, self.on_convert)
 
         source_row = wx.BoxSizer(wx.HORIZONTAL)
         source_row.Add(self.source_path, proportion=1, flag=wx.EXPAND | wx.RIGHT, border=8)
         source_row.Add(source_button, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=8)
-        source_row.Add(preview_button, flag=wx.ALIGN_CENTER_VERTICAL)
+        source_row.Add(preview_button, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=8)
+        source_row.Add(edit_button, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=8)
+        source_row.Add(missing_button, flag=wx.ALIGN_CENTER_VERTICAL)
 
         output_row = wx.BoxSizer(wx.HORIZONTAL)
         output_row.Add(self.output_path, proportion=1, flag=wx.EXPAND | wx.RIGHT, border=8)
         output_row.Add(output_button, flag=wx.ALIGN_CENTER_VERTICAL)
 
+        invoice = wx.BoxSizer(wx.VERTICAL)
+        invoice.Add(source_label, flag=wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, border=16)
+        invoice.Add(source_row, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
+        invoice.Add(output_label, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
+        invoice.Add(output_row, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
+        invoice.Add(convert_button, flag=wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, border=8)
+        invoice_page.SetSizer(invoice)
+
         root = wx.BoxSizer(wx.VERTICAL)
-        root.Add(title, flag=wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, border=20)
-        root.Add(source_label, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
-        root.Add(source_row, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
-        root.Add(output_label, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
-        root.Add(output_row, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
-        root.Add(convert_button, flag=wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, border=8)
+        root.Add(title, flag=wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, border=16)
+        root.Add(notebook, proportion=1, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=12)
 
         panel.SetSizer(root)
         self.Centre()
@@ -80,6 +109,34 @@ class MainFrame(wx.Frame):
         self.output_path.SetValue(str(suggested_target(Path(path))))
 
     def on_preview(self, _event):
+        invoices = self._read_invoices()
+        if invoices is None:
+            return
+        preview = PreviewFrame(self, invoices[0] if len(invoices) == 1 else invoices)
+        preview.Show()
+
+    def on_edit(self, _event):
+        invoices = self._read_invoices()
+        if invoices is None:
+            return
+        editor = EditFrame(self, invoices)
+        editor.Show()
+
+    def on_missing(self, _event):
+        invoices = self._read_invoices()
+        if invoices is None:
+            return
+        missing = MissingFrame(self, invoices)
+        missing.Show()
+
+    def refresh_goods(self):
+        for child in self.GetChildren():
+            found = _find_goods(child)
+            if found is not None:
+                found.refresh()
+                return
+
+    def _read_invoices(self) -> tuple[Invoice, ...] | None:
         path = self.source_path.GetValue().strip()
         if not path:
             wx.MessageBox(
@@ -87,33 +144,29 @@ class MainFrame(wx.Frame):
                 "Subksef",
                 wx.OK | wx.ICON_INFORMATION,
             )
-            return
+            return None
         if not Path(path).is_file():
             wx.MessageBox(
                 "Nie znaleziono pliku.",
                 "Subksef",
                 wx.OK | wx.ICON_WARNING,
             )
-            return
+            return None
         suffix = Path(path).suffix.lower()
         try:
             if suffix == ".xml":
-                invoices = (read_invoice(path),)
-            elif suffix == ".epp":
-                invoices = read_epp(path)
-            else:
-                wx.MessageBox(
-                    "Podgląd obsługuje pliki XML i EPP.",
-                    "Subksef",
-                    wx.OK | wx.ICON_INFORMATION,
-                )
-                return
+                return (read_invoice(path),)
+            if suffix == ".epp":
+                return read_epp(path)
         except InvoiceReadError as error:
             wx.MessageBox(str(error), "Subksef", wx.OK | wx.ICON_WARNING)
-            return
-
-        preview = PreviewFrame(self, invoices[0] if len(invoices) == 1 else invoices)
-        preview.Show()
+            return None
+        wx.MessageBox(
+            "Podgląd obsługuje pliki XML i EPP.",
+            "Subksef",
+            wx.OK | wx.ICON_INFORMATION,
+        )
+        return None
 
     def on_choose_output(self, _event):
         source = Path(self.source_path.GetValue().strip())

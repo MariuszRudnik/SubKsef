@@ -1,9 +1,11 @@
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
-from subksef.invoice.epp import DOCUMENT_TYPES, PURCHASE_TYPES, read_epp
+from subksef.catalog.store import list_replacements
+from subksef.invoice.epp import DOCUMENT_TYPES, PURCHASE_TYPES, CatalogItem, read_epp
 from subksef.invoice.fa3 import PAYMENT_FORMS, Invoice, InvoiceReadError, LineItem, read_invoice
 
 FA_NAMESPACE = "http://crd.gov.pl/wzor/2025/06/25/13775/"
@@ -34,20 +36,61 @@ def output_paths(source: Path, target: Path) -> tuple[Path, ...]:
     raise InvoiceReadError("Konwersja obsługuje pliki XML i EPP.")
 
 
-def convert(source: Path, target: Path) -> tuple[Path, ...]:
+def convert(
+    source: Path,
+    target: Path,
+    replacements: dict[tuple[int, int], CatalogItem] | None = None,
+) -> tuple[Path, ...]:
     suffix = source.suffix.lower()
     if suffix == ".xml":
         destination = _with_suffix(target, ".epp")
-        write_epp((read_invoice(source),), destination)
+        loaded = (read_invoice(source),)
+        invoices = with_replacements(loaded, _mapping(loaded, replacements))
+        write_epp(invoices, destination)
         return (destination,)
     if suffix == ".epp":
         destination = _with_suffix(target, ".xml")
-        invoices = read_epp(source)
+        loaded = read_epp(source)
+        invoices = with_replacements(loaded, _mapping(loaded, replacements))
         paths = _split_targets(destination, len(invoices))
         for invoice, path in zip(invoices, paths, strict=True):
             write_fa(invoice, path)
         return tuple(paths)
     raise InvoiceReadError("Konwersja obsługuje pliki XML i EPP.")
+
+
+def _mapping(
+    invoices: tuple[Invoice, ...],
+    replacements: dict[tuple[int, int], CatalogItem] | None,
+) -> dict[tuple[int, int], CatalogItem]:
+    mapping: dict[tuple[int, int], CatalogItem] = {}
+    for doc_index, invoice in enumerate(invoices):
+        for line_index, item in list_replacements(invoice.number, doc_index).items():
+            mapping[(doc_index, line_index)] = item
+    if replacements:
+        mapping.update(replacements)
+    return mapping
+
+
+def with_replacements(
+    invoices: tuple[Invoice, ...],
+    replacements: dict[tuple[int, int], CatalogItem] | None,
+) -> tuple[Invoice, ...]:
+    if not replacements:
+        return invoices
+    changed = []
+    for doc_index, invoice in enumerate(invoices):
+        lines = []
+        touched = False
+        for line_index, line in enumerate(invoice.lines):
+            item = replacements.get((doc_index, line_index))
+            if item is None:
+                lines.append(line)
+                continue
+            touched = True
+            lines.append(replace(line, name=item.name, index=item.code))
+        changed.append(replace(invoice, lines=tuple(lines)) if touched else invoice)
+    return tuple(changed)
 
 
 def write_epp(invoices: tuple[Invoice, ...], path: Path) -> None:

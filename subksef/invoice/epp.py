@@ -1,4 +1,5 @@
 import csv
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
@@ -31,6 +32,48 @@ DOCUMENT_TYPES = frozenset(
     }
 )
 PURCHASE_TYPES = frozenset({"FZ", "FR", "RZ", "KFZ", "KRZ", "PZ", "VPZ", "ZD"})
+
+
+@dataclass(frozen=True)
+class CatalogItem:
+    code: str
+    name: str
+    net_price: str
+    gross_price: str
+
+
+def read_catalog(path: str | Path) -> tuple[CatalogItem, ...]:
+    try:
+        rows = _read_rows(path)
+    except OSError as error:
+        raise InvoiceReadError("Nie udało się odczytać pliku EPP.") from error
+
+    sections = _sections(rows)
+    if _first(sections, "INFO") is None:
+        raise InvoiceReadError("Ten plik nie jest plikiem EPP Subiekta.")
+
+    goods_rows = _content(sections, "TOWARY")
+    if not goods_rows:
+        raise InvoiceReadError("W pliku EPP nie ma kartoteki towarów.")
+
+    prices = _prices(_content(sections, "CENNIK"))
+    items = []
+    for row in goods_rows:
+        code = _field(row, 1)
+        if not code:
+            continue
+        net_price, gross_price = prices.get(code, ("", ""))
+        items.append(
+            CatalogItem(
+                code=code,
+                name=_field(row, 4),
+                net_price=net_price,
+                gross_price=gross_price,
+            )
+        )
+    if not items:
+        raise InvoiceReadError("W pliku EPP nie ma towarów z kodem.")
+    return tuple(items)
 
 
 def read_epp(path: str | Path) -> tuple[Invoice, ...]:
@@ -94,6 +137,19 @@ def _first(sections: list[tuple[str, list[list[str]]]], label: str) -> list[str]
         if name == label and rows:
             return rows[0]
     return None
+
+
+def _prices(rows: list[list[str]]) -> dict[str, tuple[str, str]]:
+    chosen: dict[str, tuple[str, str, bool]] = {}
+    for row in rows:
+        code = _field(row, 0)
+        if not code:
+            continue
+        retail = _field(row, 1).casefold() == "detaliczna"
+        current = chosen.get(code)
+        if current is None or (retail and not current[2]):
+            chosen[code] = (_amount(_field(row, 2)), _amount(_field(row, 3)), retail)
+    return {code: (net, gross) for code, (net, gross, _retail) in chosen.items()}
 
 
 def _content(sections: list[tuple[str, list[list[str]]]], kind: str) -> list[list[str]]:
