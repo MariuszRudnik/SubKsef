@@ -6,7 +6,7 @@ from subksef.catalog.match import code_in_catalog, suggest_good
 from subksef.catalog.store import list_goods, list_states, save_replacement, skip_replacement
 from subksef.invoice.epp import CatalogItem
 from subksef.invoice.fa3 import Invoice, Party, payment_label
-from subksef.ui.office import BORDER, CANVAS, MUTED, TEXT, WHITE, face, fit_on_screen
+from subksef.ui.office import BORDER, CANVAS, MUTED, NAVY, TEXT, WHITE, face, fit_on_screen
 
 RED = wx.Colour(198, 40, 40)
 YELLOW = wx.Colour(196, 145, 0)
@@ -249,12 +249,20 @@ class EditFrame(wx.Frame):
         self._scroll.Layout()
 
 
-def _column(parent: wx.Window, label: str, width: int, bold: bool = False) -> wx.StaticText:
+def _column(
+    parent: wx.Window,
+    label: str,
+    width: int,
+    bold: bool = False,
+    colour: wx.Colour | None = None,
+) -> wx.StaticText:
     text = wx.StaticText(parent, label=label, size=(width, -1), style=wx.ST_ELLIPSIZE_END)
     if bold:
         font = text.GetFont()
         font.SetWeight(wx.FONTWEIGHT_BOLD)
         text.SetFont(font)
+    if colour is not None:
+        text.SetForegroundColour(colour)
     return text
 
 
@@ -267,7 +275,7 @@ def _list_header(parent: wx.Window) -> wx.Panel:
     unit = _column(header, "Jm", 48, bold=True)
     quantity = _column(header, "Ilość", 64, bold=True)
     price = _column(header, "Cena netto", 88, bold=True)
-    after_discount = _column(header, "Cena po rabacie", 110, bold=True)
+    after_discount = _column(header, "Cena po rabacie", 110, bold=True, colour=NAVY)
     discount = _column(header, "Kwota rabatu", 100, bold=True)
     net = _column(header, "Wartość netto", 100, bold=True)
     vat = _column(header, "VAT", 48, bold=True)
@@ -311,7 +319,13 @@ class _LineRow(wx.Panel):
         unit = _column(self, line.unit or "—", 48)
         quantity = _column(self, line.quantity or "—", 64)
         price = _column(self, line.unit_price or "—", 88)
-        after_discount = _column(self, line.price_after_discount or line.unit_price or "—", 110)
+        after_discount = _column(
+            self,
+            line.price_after_discount or line.unit_price or "—",
+            110,
+            bold=True,
+            colour=NAVY,
+        )
         discount = _column(self, line.discount_amount or "0,00", 100)
         net = _column(self, line.net_value or "—", 100)
         vat = _column(self, line.vat_rate or "—", 48)

@@ -1,7 +1,7 @@
 import wx
 
 from subksef.invoice.fa3 import Invoice, Party, payment_label
-from subksef.ui.office import CANVAS, MUTED, TEXT, WHITE, face, fit_on_screen
+from subksef.ui.office import CANVAS, MUTED, NAVY, TEXT, WHITE, face, fit_on_screen
 
 LINE_COLUMNS = (
     ("Lp", 50),
@@ -41,10 +41,11 @@ class PreviewFrame(wx.Frame):
         self._buyer = _PartyBox(panel, "Nabywca")
         self._summary = wx.StaticText(panel, label="")
 
-        self._lines = wx.ListCtrl(panel, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
-        self._lines.SetBackgroundColour(WHITE)
-        for index, (label, width) in enumerate(LINE_COLUMNS):
-            self._lines.InsertColumn(index, label, width=width)
+        self._scroll = wx.ScrolledWindow(panel, style=wx.VSCROLL | wx.HSCROLL)
+        self._scroll.SetScrollRate(16, 16)
+        self._scroll.SetBackgroundColour(WHITE)
+        self._lines = wx.BoxSizer(wx.VERTICAL)
+        self._scroll.SetSizer(self._lines)
 
         self._previous = wx.Button(panel, label="Poprzedni")
         self._position = wx.StaticText(panel, label="")
@@ -69,7 +70,7 @@ class PreviewFrame(wx.Frame):
         root.Add(self._payment, flag=wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, border=8)
         root.Add(parties, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
         root.Add(self._summary, flag=wx.ALIGN_CENTER | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
-        root.Add(self._lines, proportion=1, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
+        root.Add(self._scroll, proportion=1, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
         if len(self._invoices) > 1:
             root.Add(navigation, flag=wx.ALIGN_CENTER | wx.BOTTOM, border=8)
         root.Add(close_button, flag=wx.ALIGN_CENTER | wx.BOTTOM, border=16)
@@ -105,24 +106,53 @@ class PreviewFrame(wx.Frame):
             f"Brutto: {invoice.gross or '—'}    "
             f"Waluta: {invoice.currency or '—'}"
         )
-        self._lines.DeleteAllItems()
-        for row, item in enumerate(invoice.lines):
-            self._lines.InsertItem(row, item.number)
-            self._lines.SetItem(row, 1, item.name)
-            self._lines.SetItem(row, 2, item.index)
-            self._lines.SetItem(row, 3, item.gtin)
-            self._lines.SetItem(row, 4, item.unit)
-            self._lines.SetItem(row, 5, item.quantity)
-            self._lines.SetItem(row, 6, item.unit_price)
-            self._lines.SetItem(row, 7, item.price_after_discount or item.unit_price)
-            self._lines.SetItem(row, 8, item.discount_amount or "0,00")
-            self._lines.SetItem(row, 9, item.net_value)
-            self._lines.SetItem(row, 10, item.vat_rate)
+        self._lines.Clear(delete_windows=True)
+        self._lines.Add(_table_row(self._scroll, [label for label, _width in LINE_COLUMNS], header=True), flag=wx.BOTTOM, border=6)
+        for item in invoice.lines:
+            self._lines.Add(
+                _table_row(
+                    self._scroll,
+                    [
+                        item.number,
+                        item.name,
+                        item.index,
+                        item.gtin,
+                        item.unit,
+                        item.quantity,
+                        item.unit_price,
+                        item.price_after_discount or item.unit_price,
+                        item.discount_amount or "0,00",
+                        item.net_value,
+                        item.vat_rate,
+                    ],
+                ),
+                flag=wx.BOTTOM,
+                border=2,
+            )
+        self._scroll.FitInside()
         if len(self._invoices) > 1:
             self._position.SetLabel(f"Dokument {self._index + 1} z {len(self._invoices)}")
             self._previous.Enable(self._index > 0)
             self._next.Enable(self._index < len(self._invoices) - 1)
         self.Layout()
+
+
+AFTER_COLUMN = 7
+
+
+def _table_row(parent: wx.Window, values: list[str], header: bool = False) -> wx.Panel:
+    row = wx.Panel(parent)
+    row.SetBackgroundColour(WHITE)
+    sizer = wx.BoxSizer(wx.HORIZONTAL)
+    for index, ((_title, width), value) in enumerate(zip(LINE_COLUMNS, values)):
+        highlight = index == AFTER_COLUMN
+        text = wx.StaticText(row, label=value or "—", size=(width, -1), style=wx.ST_ELLIPSIZE_END)
+        if header or highlight:
+            text.SetFont(face(9, bold=True))
+        text.SetForegroundColour(NAVY if highlight else TEXT)
+        sizer.Add(text, flag=wx.RIGHT, border=8)
+    row.SetSizer(sizer)
+    return row
 
 
 class _PartyBox:

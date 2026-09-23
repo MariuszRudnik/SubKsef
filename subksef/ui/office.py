@@ -8,6 +8,7 @@ RIBBON = wx.Colour(245, 245, 245)
 BORDER = wx.Colour(225, 225, 225)
 ACCENT = wx.Colour(15, 108, 189)
 ACCENT_SOFT = wx.Colour(229, 241, 251)
+NAVY = wx.Colour(0, 51, 102)
 TEXT = wx.Colour(32, 31, 30)
 MUTED = wx.Colour(96, 94, 92)
 
