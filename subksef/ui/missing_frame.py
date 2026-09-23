@@ -1,3 +1,4 @@
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import wx
@@ -13,22 +14,26 @@ REPLACED = frozenset({"auto", "reczna"})
 
 class MissingFrame(wx.Frame):
     def __init__(self, parent: wx.Window, invoices: tuple[Invoice, ...], database: Path | None = None):
-        super().__init__(parent, title="Niedodane", size=(760, 520))
+        super().__init__(parent, title="Niedodane", size=(980, 560))
         self.SetBackgroundColour(CANVAS)
         self._database = database
         self._invoices = invoices
         self._rows: tuple[tuple[int, int, LineItem], ...] = ()
 
         panel = wx.Panel(self)
+        self._panel = panel
         panel.SetBackgroundColour(WHITE)
         self._info = wx.StaticText(
             panel,
             label="Pozycje, których nie podmieniono na towar z bazy. Wpisz własny kod i nazwę.",
         )
-        self._list = wx.ListBox(panel, style=wx.LB_SINGLE)
+        self._list = wx.ListBox(panel, style=wx.LB_SINGLE | wx.LB_HSCROLL)
         self._list.SetBackgroundColour(WHITE)
         self._list.SetForegroundColour(TEXT)
         self._list.Bind(wx.EVT_LISTBOX, self._on_select)
+        self._total = wx.StaticText(panel, label="")
+        self._total.SetFont(face(10, bold=True))
+        self._total.SetForegroundColour(TEXT)
 
         code_label = wx.StaticText(panel, label="Kod")
         self._code = wx.TextCtrl(panel)
@@ -53,7 +58,8 @@ class MissingFrame(wx.Frame):
 
         root = wx.BoxSizer(wx.VERTICAL)
         root.Add(self._info, flag=wx.ALL, border=16)
-        root.Add(self._list, proportion=1, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
+        root.Add(self._list, proportion=1, flag=wx.EXPAND | wx.LEFT | wx.RIGHT, border=16)
+        root.Add(self._total, flag=wx.ALL, border=16)
         root.Add(form, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
         root.Add(buttons, flag=wx.ALIGN_CENTER | wx.BOTTOM, border=16)
         panel.SetSizer(root)
@@ -91,11 +97,16 @@ class MissingFrame(wx.Frame):
             self._list.Enable()
             self._add.Enable()
             self._info.SetLabel("Pozycje, których nie podmieniono na towar z bazy. Wpisz własny kod i nazwę.")
-            return
-        self._list.SetItems(["Brak niedodanych pozycji na tej fakturze."])
-        self._list.Enable(False)
-        self._add.Enable(False)
-        self._info.SetLabel("Brak niedodanych towarów.")
+            self._total.SetLabel(
+                f"Łącznie jednostkowo cena netto po rabacie: {_unit_total(line for _document, _index, line in self._rows)}"
+            )
+        else:
+            self._list.SetItems(["Brak niedodanych pozycji na tej fakturze."])
+            self._list.Enable(False)
+            self._add.Enable(False)
+            self._info.SetLabel("Brak niedodanych towarów.")
+            self._total.SetLabel("")
+        self._panel.Layout()
 
     def _on_select(self, _event):
         self._code.ChangeValue("")
@@ -157,4 +168,37 @@ class MissingFrame(wx.Frame):
 
 def _label(line: LineItem) -> str:
     code = line.index.strip() or "bez kodu"
-    return f"niedodany    Lp {line.number or '—'}    {code}    {line.name}    {line.unit_price or '—'}"
+    net = line.unit_price or "—"
+    after = _unit_after(line)
+    return (
+        f"niedodany    Lp {line.number or '—'}    {code}    {line.name}"
+        f"    cena netto {net}    cena netto po rabacie za sztukę {after}"
+    )
+
+
+def _unit_after(line: LineItem) -> str:
+    return line.price_after_discount or line.unit_price or "—"
+
+
+def _unit_total(lines) -> str:
+    total = Decimal("0.00")
+    for line in lines:
+        value = _money(line.price_after_discount or line.unit_price)
+        if value is not None:
+            total += value
+    text = f"{total:,.2f}"
+    return text.replace(",", " ").replace(".", ",")
+
+
+def _money(value: str) -> Decimal | None:
+    if not value or not value.strip():
+        return None
+    text = value.strip().replace(" ", "").replace("\xa0", "")
+    if "," in text and "." in text:
+        text = text.replace(".", "").replace(",", ".")
+    elif "," in text:
+        text = text.replace(",", ".")
+    try:
+        return Decimal(text)
+    except InvalidOperation:
+        return None
