@@ -1,0 +1,9 @@
+[project]
+name = "subksef"
+version = "0.1.0"
+description = "Podgląd i konwersja faktur między XML KSeF a plikiem EPP Subiekta."
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "wxpython>=4.3.1",
+]
