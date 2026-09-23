@@ -129,6 +129,12 @@ def _line(row: ET.Element) -> LineItem:
     quantity = _text(row, "P_8B")
     net_value = _text(row, "P_11")
     discount = _text(row, "P_10")
+    after, discount_value = unit_discount(
+        unit_price,
+        quantity,
+        net_value,
+        discount_amount=discount,
+    )
     return LineItem(
         number=_text(row, "NrWierszaFa"),
         name=_text(row, "P_7"),
@@ -139,75 +145,42 @@ def _line(row: ET.Element) -> LineItem:
         unit_price=_amount(unit_price),
         net_value=_amount(net_value),
         vat_rate=_text(row, "P_12"),
-        price_after_discount=price_after_discount(
-            unit_price,
-            quantity,
-            net_value,
-            discount_amount=discount,
-        ),
-        discount_amount=granted_discount(
-            unit_price,
-            quantity,
-            net_value,
-            discount_amount=discount,
-        ),
+        price_after_discount=after,
+        discount_amount=discount_value,
     )
 
 
-def granted_discount(
+def unit_discount(
     unit_price: str,
     quantity: str,
     net_value: str,
     discount_amount: str = "",
     discount_percent: str = "",
-) -> str:
-    amount = _parse_money(discount_amount) or Decimal("0")
-    percent = _parse_money(discount_percent) or Decimal("0")
-    price = _parse_money(unit_price)
-    quantity_value = _parse_money(quantity)
-    if amount != 0:
-        value = amount
-    elif percent != 0 and price is not None and quantity_value not in (None, Decimal("0")):
-        value = price * quantity_value * percent / Decimal("100")
-    elif price is not None and quantity_value not in (None, Decimal("0")):
-        net = _parse_money(net_value)
-        value = price * quantity_value - net if net is not None else Decimal("0")
-    else:
-        value = Decimal("0")
-    if value < 0:
-        value = Decimal("0")
-    return _amount(str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)))
-
-
-def price_after_discount(
-    unit_price: str,
-    quantity: str,
-    net_value: str,
-    discount_amount: str = "",
-    discount_percent: str = "",
-) -> str:
+) -> tuple[str, str]:
     price = _parse_money(unit_price)
     if price is None:
-        return _amount(unit_price)
+        return _amount(unit_price), _amount("0")
+    price_value = price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     percent = _parse_money(discount_percent) or Decimal("0")
     amount = _parse_money(discount_amount) or Decimal("0")
     quantity_value = _parse_money(quantity)
     if percent != 0:
-        after = price * (Decimal("1") - percent / Decimal("100"))
+        per_unit = price_value * percent / Decimal("100")
+    elif amount != 0 and quantity_value not in (None, Decimal("0")):
+        per_unit = amount / quantity_value
     elif amount != 0:
-        if quantity_value not in (None, Decimal("0")):
-            after = price - (amount / quantity_value)
-        else:
-            after = price - amount
+        per_unit = amount
     else:
         net = _parse_money(net_value)
-        if net is None or quantity_value in (None, Decimal("0")):
-            return _amount(unit_price)
-        after = net / quantity_value
-    after = after.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    if after == price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP):
-        return _amount(unit_price)
-    return _amount(str(after))
+        if net is not None and quantity_value not in (None, Decimal("0")):
+            per_unit = price_value - (net / quantity_value)
+        else:
+            per_unit = Decimal("0")
+    per_unit = per_unit.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if per_unit < 0:
+        per_unit = Decimal("0.00")
+    after = price_value - per_unit
+    return _amount(str(after)), _amount(str(per_unit))
 
 
 def _parse_money(value: str) -> Decimal | None:

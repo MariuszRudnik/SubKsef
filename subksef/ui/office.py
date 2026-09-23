@@ -160,13 +160,27 @@ class RibbonTab(wx.Panel):
 
 
 def fit_on_screen(frame: wx.Frame):
-    anchor = frame.GetParent() or frame
-    index = wx.Display.GetFromWindow(anchor)
-    if index == wx.NOT_FOUND:
-        index = 0
-    area = wx.Display(index).GetClientArea()
-    frame.SetSize(area.GetSize())
-    frame.SetPosition(area.GetPosition())
+    def apply():
+        index = wx.Display.GetFromWindow(frame)
+        if index == wx.NOT_FOUND and frame.GetParent() is not None:
+            index = wx.Display.GetFromWindow(frame.GetParent())
+        if index == wx.NOT_FOUND:
+            index = 0
+        area = wx.Display(index).GetClientArea()
+        frame.Maximize(False)
+        frame.SetSize(area.GetSize())
+        frame.SetPosition(area.GetPosition())
+
+    if frame.IsShown():
+        apply()
+        return
+
+    def on_show(event):
+        event.Skip()
+        frame.Unbind(wx.EVT_SHOW, handler=on_show)
+        wx.CallAfter(apply)
+
+    frame.Bind(wx.EVT_SHOW, on_show)
 
 
 def card(parent: wx.Window) -> tuple[wx.Panel, wx.Panel]:
