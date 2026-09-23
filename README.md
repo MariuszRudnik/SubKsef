@@ -14,7 +14,7 @@ Program jest open source. Repozytorium jest publiczne: można je przeglądać, s
 ## Pobranie
 
 ```bash
-git clone https://github.com/mrjson/SubKsef.git
+git clone https://github.com/MariuszRudnik/SubKsef.git
 cd SubKsef
 ```
 
