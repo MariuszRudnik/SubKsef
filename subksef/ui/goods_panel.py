@@ -2,7 +2,7 @@ import wx
 from pathlib import Path
 
 from subksef.catalog.store import delete_good, import_goods, list_goods
-from subksef.invoice.epp import read_catalog
+from subksef.invoice.epp import CatalogItem, read_catalog
 from subksef.invoice.fa3 import InvoiceReadError
 from subksef.ui.office import WHITE, field_label
 
@@ -35,6 +35,17 @@ class GoodsPanel(wx.Panel):
         self.search = wx.TextCtrl(self)
         self.search.Bind(wx.EVT_TEXT, self.on_search)
 
+        self.code = wx.TextCtrl(self)
+        self.product_name = wx.TextCtrl(self)
+        add = wx.Button(self, label="Dodaj")
+        add.Bind(wx.EVT_BUTTON, self.on_add)
+        manual = wx.BoxSizer(wx.HORIZONTAL)
+        manual.Add(field_label(self, "Kod"), flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=8)
+        manual.Add(self.code, proportion=1, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=12)
+        manual.Add(field_label(self, "Nazwa"), flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=8)
+        manual.Add(self.product_name, proportion=2, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=8)
+        manual.Add(add, flag=wx.ALIGN_CENTER_VERTICAL)
+
         self.table = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
         self.table.SetBackgroundColour(WHITE)
         for index, (title, width) in enumerate(COLUMNS):
@@ -51,6 +62,7 @@ class GoodsPanel(wx.Panel):
         root.Add(self.status, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
         root.Add(field_label(self, "Szukaj"), flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=8)
         root.Add(self.search, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
+        root.Add(manual, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
         root.Add(self.table, proportion=1, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
         root.Add(self._remove, flag=wx.ALIGN_LEFT | wx.LEFT | wx.BOTTOM, border=16)
         self.SetSizer(root)
@@ -105,6 +117,39 @@ class GoodsPanel(wx.Panel):
             return
         self.refresh()
         self.status.SetLabel(f"Dodano {added}, pominięto {skipped}.")
+
+    def on_add(self, _event):
+        code = self.code.GetValue().strip()[:20]
+        name = self.product_name.GetValue().strip()
+        if not code or not name:
+            wx.MessageBox(
+                "Wpisz kod i nazwę.",
+                "Subksef",
+                wx.OK | wx.ICON_INFORMATION,
+            )
+            return
+        try:
+            known = {item.code.strip().casefold() for item in list_goods()}
+            if code.casefold() in known:
+                wx.MessageBox(
+                    "Taki kod jest już w bazie.",
+                    "Subksef",
+                    wx.OK | wx.ICON_INFORMATION,
+                )
+                return
+            import_goods((CatalogItem(code=code, name=name, net_price="", gross_price=""),))
+        except OSError:
+            wx.MessageBox(
+                "Nie udało się zapisać bazy towarów.",
+                "Subksef",
+                wx.OK | wx.ICON_WARNING,
+            )
+            return
+        self.code.ChangeValue("")
+        self.product_name.ChangeValue("")
+        self.search.ChangeValue(code)
+        self.refresh()
+        self.status.SetLabel(f"Dodano {code}.")
 
     def on_search(self, _event):
         self.refresh()

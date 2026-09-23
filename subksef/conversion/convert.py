@@ -40,23 +40,42 @@ def convert(
     source: Path,
     target: Path,
     replacements: dict[tuple[int, int], CatalogItem] | None = None,
+    use_discounted_price: bool = True,
 ) -> tuple[Path, ...]:
     suffix = source.suffix.lower()
     if suffix == ".xml":
         destination = _with_suffix(target, ".epp")
         loaded = (read_invoice(source),)
         invoices = with_replacements(loaded, _mapping(loaded, replacements))
+        if use_discounted_price:
+            invoices = _discounted_unit_prices(invoices)
         write_epp(invoices, destination)
         return (destination,)
     if suffix == ".epp":
         destination = _with_suffix(target, ".xml")
         loaded = read_epp(source)
         invoices = with_replacements(loaded, _mapping(loaded, replacements))
+        if use_discounted_price:
+            invoices = _discounted_unit_prices(invoices)
         paths = _split_targets(destination, len(invoices))
         for invoice, path in zip(invoices, paths, strict=True):
             write_fa(invoice, path)
         return tuple(paths)
     raise InvoiceReadError("Konwersja obsługuje pliki XML i EPP.")
+
+
+def _discounted_unit_prices(invoices: tuple[Invoice, ...]) -> tuple[Invoice, ...]:
+    changed = []
+    for invoice in invoices:
+        lines = []
+        for line in invoice.lines:
+            price = line.price_after_discount or line.unit_price
+            if price and price != line.unit_price:
+                lines.append(replace(line, unit_price=price))
+            else:
+                lines.append(line)
+        changed.append(replace(invoice, lines=tuple(lines)))
+    return tuple(changed)
 
 
 def _mapping(
@@ -255,10 +274,11 @@ def _document_row(invoice: Invoice, kind: str, number: str, code: str, contracto
     row[29] = _epp_amount(invoice.gross)
     row[30] = _epp_amount(invoice.net)
     row[32] = "0.0000"
-    row[33] = invoice.payment_form[:30]
-    row[34] = _epp_date(invoice.payment_due)
-    row[35] = "0.0000"
-    row[36] = _epp_amount(invoice.gross)
+    form, due, paid, payable = _payment_fields(invoice)
+    row[33] = form
+    row[34] = due
+    row[35] = paid
+    row[36] = payable
     row[37] = "0"
     row[38] = "0"
     row[39] = "1"
@@ -513,6 +533,17 @@ def _with_suffix(path: Path, suffix: str) -> Path:
     if path.suffix.lower() == suffix:
         return path
     return path.with_suffix(suffix)
+
+
+def _payment_fields(invoice: Invoice) -> tuple[str, str, str, str]:
+    gross = _epp_amount(invoice.gross)
+    form = (invoice.payment_form or "")[:30]
+    if form == "przelew":
+        return form, _epp_date(invoice.payment_due), "0.0000", gross
+    if form == "gotówka":
+        return form, "", gross, "0.0000"
+    due = _epp_date(invoice.payment_due) if invoice.payment_due else ""
+    return form, due, "0.0000", gross
 
 
 def _epp_date(value: str) -> str:

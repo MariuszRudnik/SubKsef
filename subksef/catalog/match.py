@@ -29,49 +29,63 @@ def missing_lines(
     return tuple(missing)
 
 
+def code_in_catalog(line: LineItem, goods: tuple[CatalogItem, ...] | list[CatalogItem]) -> bool:
+    code = line.index.strip().casefold()
+    if not code:
+        return False
+    return any(item.code.strip().casefold() == code for item in goods)
+
+
 def suggest_good(line: LineItem, goods: tuple[CatalogItem, ...] | list[CatalogItem]) -> CatalogItem | None:
     invoice_name, invoice_price = _line_name_price(line)
-    if not invoice_name:
+    if not invoice_name or invoice_price is None:
         return None
-    ordered = sorted(goods, key=lambda item: item.code.casefold())
-    current = _by_code(ordered).get(line.index.strip().casefold())
-    if current is not None and _same_product(current, invoice_name, invoice_price):
+    if code_in_catalog(line, goods):
         return None
-    if invoice_price is None:
-        return None
-    for item in ordered:
-        stem, price = _split_name(item.name)
-        if stem != invoice_name or price != invoice_price:
+    best: tuple[int, str, CatalogItem] | None = None
+    for item in goods:
+        stem, price = _catalog_name_price(item)
+        if price != invoice_price:
+            continue
+        rank = _name_rank(invoice_name, stem)
+        if rank is None:
             continue
         if item.code.strip().casefold() == line.index.strip().casefold():
-            return None
-        return item
+            continue
+        candidate = (rank, item.code.casefold(), item)
+        if best is None or candidate < best:
+            best = candidate
+    if best is None:
+        return None
+    return best[2]
+
+
+def _catalog_name_price(item: CatalogItem) -> tuple[str, Decimal | None]:
+    stem, embedded = _split_name(item.name)
+    if embedded is not None:
+        return stem, embedded
+    listed = _parse_price(item.net_price)
+    if listed is not None and listed != 0:
+        return stem, listed
+    return stem, None
+
+
+def _name_rank(invoice_name: str, catalog_name: str) -> int | None:
+    if invoice_name == catalog_name:
+        return 0
+    invoice_words = invoice_name.split()
+    catalog_words = catalog_name.split()
+    if len(invoice_name) >= 4 and invoice_name in catalog_words:
+        return 1
+    if len(catalog_name) >= 4 and catalog_name in invoice_words:
+        return 1
     return None
 
 
-def _by_code(goods: list[CatalogItem]) -> dict[str, CatalogItem]:
-    found = {}
-    for item in goods:
-        found.setdefault(item.code.strip().casefold(), item)
-    return found
-
-
-def _same_product(item: CatalogItem, invoice_name: str, invoice_price: Decimal | None) -> bool:
-    if _fold(item.name) == invoice_name:
-        return True
-    stem, price = _split_name(item.name)
-    if stem != invoice_name:
-        return False
-    return invoice_price is None or price is None or price == invoice_price
-
-
 def _line_name_price(line: LineItem) -> tuple[str, Decimal | None]:
-    price = _parse_price(line.unit_price)
-    stem, embedded = _split_name(line.name)
-    if embedded is not None and (price is None or embedded == price):
-        return stem, price if price is not None else embedded
-    folded = _fold(line.name)
-    return folded, price
+    price = _parse_price(line.price_after_discount) or _parse_price(line.unit_price)
+    stem, _embedded = _split_name(line.name)
+    return stem, price
 
 
 def _split_name(name: str) -> tuple[str, Decimal | None]:

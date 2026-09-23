@@ -197,9 +197,16 @@ def _payment_due(payment: ET.Element | None) -> str:
 
 def _payment_form(payment: ET.Element | None) -> str:
     code = _text(payment, "FormaPlatnosci")
-    if not code:
-        return ""
-    return PAYMENT_FORMS.get(code, code)
+    if code:
+        return PAYMENT_FORMS.get(code, code)
+    return _text(payment, "OpisPlatnosci")
+
+
+def payment_label(invoice: Invoice) -> str:
+    form = invoice.payment_form or "—"
+    if invoice.payment_form == "przelew":
+        return f"Płatność: przelew    Termin zapłaty: {invoice.payment_due or '—'}"
+    return f"Płatność: {form}"
 
 
 def _sum_fields(element: ET.Element, names: tuple[str, ...]) -> str:

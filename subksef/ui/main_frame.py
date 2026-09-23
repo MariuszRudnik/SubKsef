@@ -103,6 +103,15 @@ class MainFrame(wx.Frame):
         body.Add(source_row, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
         body.Add(field_label(card_body, "Tu powstanie przerobiony plik"), flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
         body.Add(output_row, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
+        self._discount_price = wx.RadioBox(
+            card_body,
+            label="Cena za sztukę po rabacie",
+            choices=["Tak", "Nie"],
+            majorDimension=2,
+            style=wx.RA_SPECIFY_COLS,
+        )
+        self._discount_price.SetSelection(0)
+        body.Add(self._discount_price, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
         card_body.SetSizer(body)
         return page
 
@@ -113,6 +122,7 @@ class MainFrame(wx.Frame):
         incoming.add(CommandButton(incoming, "Wybierz EPP", wx.ART_FILE_OPEN, self.goods.on_choose))
         incoming.add(CommandButton(incoming, "Wczytaj", wx.ART_GO_DOWN, self.goods.on_load))
         goods = RibbonGroup(page, "Towary")
+        goods.add(CommandButton(goods, "Dodaj", wx.ART_PLUS, self.goods.on_add))
         self._remove_goods = CommandButton(goods, "Usuń", wx.ART_DELETE, self.goods.on_remove)
         self._remove_goods.Enable(False)
         goods.add(self._remove_goods)
@@ -262,7 +272,11 @@ class MainFrame(wx.Frame):
             if answer != wx.YES:
                 return
         try:
-            written = convert(source, target)
+            written = convert(
+                source,
+                target,
+                use_discounted_price=self._discount_price.GetSelection() == 0,
+            )
         except InvoiceReadError as error:
             wx.MessageBox(str(error), "Subksef", wx.OK | wx.ICON_WARNING)
             return

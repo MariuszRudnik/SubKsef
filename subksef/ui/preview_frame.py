@@ -1,6 +1,6 @@
 import wx
 
-from subksef.invoice.fa3 import Invoice, Party
+from subksef.invoice.fa3 import Invoice, Party, payment_label
 from subksef.ui.office import CANVAS, MUTED, TEXT, WHITE, face, fit_on_screen
 
 LINE_COLUMNS = (
@@ -34,6 +34,9 @@ class PreviewFrame(wx.Frame):
 
         self._dates = wx.StaticText(panel, label="")
         self._dates.SetForegroundColour(MUTED)
+        self._payment = wx.StaticText(panel, label="")
+        self._payment.SetFont(face(10, bold=True))
+        self._payment.SetForegroundColour(TEXT)
         self._seller = _PartyBox(panel, "Sprzedawca")
         self._buyer = _PartyBox(panel, "Nabywca")
         self._summary = wx.StaticText(panel, label="")
@@ -62,7 +65,8 @@ class PreviewFrame(wx.Frame):
 
         root = wx.BoxSizer(wx.VERTICAL)
         root.Add(self._title, flag=wx.ALIGN_CENTER | wx.TOP, border=16)
-        root.Add(self._dates, flag=wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, border=8)
+        root.Add(self._dates, flag=wx.ALIGN_CENTER | wx.TOP, border=8)
+        root.Add(self._payment, flag=wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, border=8)
         root.Add(parties, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
         root.Add(self._summary, flag=wx.ALIGN_CENTER | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
         root.Add(self._lines, proportion=1, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
@@ -90,17 +94,16 @@ class PreviewFrame(wx.Frame):
         self._title.SetLabel(invoice.number or "Faktura")
         self._dates.SetLabel(
             f"Wystawienie: {invoice.issue_date or '—'}    "
-            f"Dostawa: {invoice.delivery_date or '—'}    "
-            f"Termin płatności: {invoice.payment_due or '—'}"
+            f"Dostawa: {invoice.delivery_date or '—'}"
         )
+        self._payment.SetLabel(payment_label(invoice))
         self._seller.set_party(invoice.seller)
         self._buyer.set_party(invoice.buyer)
         self._summary.SetLabel(
             f"Netto: {invoice.net or '—'}    "
             f"VAT: {invoice.vat or '—'}    "
             f"Brutto: {invoice.gross or '—'}    "
-            f"Waluta: {invoice.currency or '—'}    "
-            f"Płatność: {invoice.payment_form or '—'}"
+            f"Waluta: {invoice.currency or '—'}"
         )
         self._lines.DeleteAllItems()
         for row, item in enumerate(invoice.lines):

@@ -2,10 +2,10 @@ from pathlib import Path
 
 import wx
 
-from subksef.catalog.match import suggest_good
+from subksef.catalog.match import code_in_catalog, suggest_good
 from subksef.catalog.store import list_goods, list_states, save_replacement, skip_replacement
 from subksef.invoice.epp import CatalogItem
-from subksef.invoice.fa3 import Invoice, Party
+from subksef.invoice.fa3 import Invoice, Party, payment_label
 from subksef.ui.office import BORDER, CANVAS, MUTED, TEXT, WHITE, face, fit_on_screen
 
 RED = wx.Colour(198, 40, 40)
@@ -20,8 +20,8 @@ def _legend(parent: wx.Window) -> wx.Panel:
     row = wx.BoxSizer(wx.HORIZONTAL)
     notes = (
         (RED, "Czerwona zostaje z faktury."),
-        (YELLOW, "Żółta jest dopasowana po nazwie i cenie."),
-        (GREEN, "Zielona jest wybrana ręcznie."),
+        (YELLOW, "Żółta jest dopasowana po podobnej nazwie i cenie po rabacie."),
+        (GREEN, "Zielona jest w bazie albo wybrana ręcznie."),
     )
     for colour, text in notes:
         dot = wx.Panel(bar, size=(10, 10))
@@ -72,6 +72,9 @@ class EditFrame(wx.Frame):
 
         self._dates = wx.StaticText(panel, label="")
         self._dates.SetForegroundColour(MUTED)
+        self._payment = wx.StaticText(panel, label="")
+        self._payment.SetFont(face(10, bold=True))
+        self._payment.SetForegroundColour(TEXT)
         self._seller = _PartyBox(panel, "Sprzedawca")
         self._buyer = _PartyBox(panel, "Nabywca")
         self._summary = wx.StaticText(panel, label="")
@@ -102,7 +105,8 @@ class EditFrame(wx.Frame):
 
         root = wx.BoxSizer(wx.VERTICAL)
         root.Add(self._title, flag=wx.ALIGN_CENTER | wx.TOP, border=16)
-        root.Add(self._dates, flag=wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, border=8)
+        root.Add(self._dates, flag=wx.ALIGN_CENTER | wx.TOP, border=8)
+        root.Add(self._payment, flag=wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, border=8)
         root.Add(parties, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
         root.Add(self._summary, flag=wx.ALIGN_CENTER | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=8)
         root.Add(hint, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=12)
@@ -138,17 +142,16 @@ class EditFrame(wx.Frame):
         self._title.SetLabel(invoice.number or "Faktura")
         self._dates.SetLabel(
             f"Wystawienie: {invoice.issue_date or '—'}    "
-            f"Dostawa: {invoice.delivery_date or '—'}    "
-            f"Termin płatności: {invoice.payment_due or '—'}"
+            f"Dostawa: {invoice.delivery_date or '—'}"
         )
+        self._payment.SetLabel(payment_label(invoice))
         self._seller.set_party(invoice.seller)
         self._buyer.set_party(invoice.buyer)
         self._summary.SetLabel(
             f"Netto: {invoice.net or '—'}    "
             f"VAT: {invoice.vat or '—'}    "
             f"Brutto: {invoice.gross or '—'}    "
-            f"Waluta: {invoice.currency or '—'}    "
-            f"Płatność: {invoice.payment_form or '—'}"
+            f"Waluta: {invoice.currency or '—'}"
         )
         self._suggest.Hide()
         self._lines.Clear(delete_windows=True)
@@ -166,7 +169,10 @@ class EditFrame(wx.Frame):
             goods = ()
         for line_index, line in enumerate(invoice.lines):
             state = stored.get(line_index)
-            if state is None:
+            in_catalog = False
+            if state is None and code_in_catalog(line, goods):
+                in_catalog = True
+            elif state is None:
                 match = suggest_good(line, goods)
                 if match is not None and self._assign(line_index, match, manual=False):
                     state = ("auto", match)
@@ -175,7 +181,16 @@ class EditFrame(wx.Frame):
             if state is not None and state[0] != "pominieta":
                 item = state[1]
                 manual = state[0] == "reczna"
-            row = _LineRow(self._scroll, line_index, line, item, manual, self._assign, self._clear)
+            row = _LineRow(
+                self._scroll,
+                line_index,
+                line,
+                item,
+                manual,
+                self._assign,
+                self._clear,
+                in_catalog=in_catalog,
+            )
             self._lines.Add(row, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=2)
         if len(self._invoices) > 1:
             self._position.SetLabel(f"Dokument {self._index + 1} z {len(self._invoices)}")
@@ -268,7 +283,17 @@ def _list_header(parent: wx.Window) -> wx.Panel:
 
 
 class _LineRow(wx.Panel):
-    def __init__(self, parent, line_index: int, line, replacement: CatalogItem | None, manual: bool, assign, clear):
+    def __init__(
+        self,
+        parent,
+        line_index: int,
+        line,
+        replacement: CatalogItem | None,
+        manual: bool,
+        assign,
+        clear,
+        in_catalog: bool = False,
+    ):
         super().__init__(parent)
         self.SetBackgroundColour(wx.WHITE)
         self._line_index = line_index
@@ -321,14 +346,14 @@ class _LineRow(wx.Panel):
         root.Add(search_row, flag=wx.EXPAND | wx.LEFT | wx.TOP, border=2)
         root.Add(rule, flag=wx.EXPAND | wx.TOP, border=4)
         self.SetSizer(root)
-        self._paint(replacement, manual)
+        self._paint(replacement, manual, in_catalog)
 
-    def _paint(self, item: CatalogItem | None, manual: bool = True):
+    def _paint(self, item: CatalogItem | None, manual: bool = True, in_catalog: bool = False):
         self._assigned = item
         if item is None:
             self._name.SetLabel(self._original_name)
             self._index.SetLabel(self._original_index)
-            self._dot.SetBackgroundColour(RED)
+            self._dot.SetBackgroundColour(GREEN if in_catalog else RED)
             self._mark.SetLabel("+")
             self._dot.Refresh()
             return
