@@ -1,7 +1,7 @@
 import wx
 
 from subksef.invoice.fa3 import Invoice, Party
-from subksef.ui.office import CANVAS, MUTED, TEXT, WHITE, face
+from subksef.ui.office import CANVAS, MUTED, TEXT, WHITE, face, fit_on_screen
 
 LINE_COLUMNS = (
     ("Lp", 50),
@@ -11,6 +11,8 @@ LINE_COLUMNS = (
     ("Jm", 50),
     ("Ilość", 70),
     ("Cena netto", 100),
+    ("Cena po rabacie", 120),
+    ("Kwota rabatu", 110),
     ("Wartość netto", 120),
     ("VAT %", 70),
 )
@@ -70,7 +72,7 @@ class PreviewFrame(wx.Frame):
 
         panel.SetSizer(root)
         self._show_current()
-        self.Centre()
+        fit_on_screen(self)
 
     def _show_previous(self, _event):
         if self._index > 0:
@@ -109,8 +111,10 @@ class PreviewFrame(wx.Frame):
             self._lines.SetItem(row, 4, item.unit)
             self._lines.SetItem(row, 5, item.quantity)
             self._lines.SetItem(row, 6, item.unit_price)
-            self._lines.SetItem(row, 7, item.net_value)
-            self._lines.SetItem(row, 8, item.vat_rate)
+            self._lines.SetItem(row, 7, item.price_after_discount or item.unit_price)
+            self._lines.SetItem(row, 8, item.discount_amount or "0,00")
+            self._lines.SetItem(row, 9, item.net_value)
+            self._lines.SetItem(row, 10, item.vat_rate)
         if len(self._invoices) > 1:
             self._position.SetLabel(f"Dokument {self._index + 1} z {len(self._invoices)}")
             self._previous.Enable(self._index > 0)

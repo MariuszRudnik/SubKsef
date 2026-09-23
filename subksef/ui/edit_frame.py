@@ -6,7 +6,7 @@ from subksef.catalog.match import suggest_good
 from subksef.catalog.store import list_goods, list_states, save_replacement, skip_replacement
 from subksef.invoice.epp import CatalogItem
 from subksef.invoice.fa3 import Invoice, Party
-from subksef.ui.office import BORDER, CANVAS, MUTED, TEXT, WHITE, face
+from subksef.ui.office import BORDER, CANVAS, MUTED, TEXT, WHITE, face, fit_on_screen
 
 RED = wx.Colour(198, 40, 40)
 YELLOW = wx.Colour(196, 145, 0)
@@ -116,7 +116,7 @@ class EditFrame(wx.Frame):
         self._scroll.Bind(wx.EVT_SCROLLWIN, self._follow_suggest)
         self.Bind(wx.EVT_MOVE, self._follow_suggest)
         self._show_current()
-        self.Centre()
+        fit_on_screen(self)
 
     def _follow_suggest(self, event):
         self._suggest.follow()
@@ -252,13 +252,15 @@ def _list_header(parent: wx.Window) -> wx.Panel:
     unit = _column(header, "Jm", 48, bold=True)
     quantity = _column(header, "Ilość", 64, bold=True)
     price = _column(header, "Cena netto", 88, bold=True)
+    after_discount = _column(header, "Cena po rabacie", 110, bold=True)
+    discount = _column(header, "Kwota rabatu", 100, bold=True)
     net = _column(header, "Wartość netto", 100, bold=True)
     vat = _column(header, "VAT", 48, bold=True)
     row = wx.BoxSizer(wx.HORIZONTAL)
     row.Add(number, flag=wx.RIGHT, border=6)
     row.Add((20, 14))
     row.Add(name, flag=wx.RIGHT, border=8)
-    for label in (index, unit, quantity, price, net):
+    for label in (index, unit, quantity, price, after_discount, discount, net):
         row.Add(label, flag=wx.RIGHT, border=8)
     row.Add(vat)
     header.SetSizer(row)
@@ -284,6 +286,8 @@ class _LineRow(wx.Panel):
         unit = _column(self, line.unit or "—", 48)
         quantity = _column(self, line.quantity or "—", 64)
         price = _column(self, line.unit_price or "—", 88)
+        after_discount = _column(self, line.price_after_discount or line.unit_price or "—", 110)
+        discount = _column(self, line.discount_amount or "0,00", 100)
         net = _column(self, line.net_value or "—", 100)
         vat = _column(self, line.vat_rate or "—", 48)
 
@@ -300,7 +304,7 @@ class _LineRow(wx.Panel):
         identity.Add(number, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=6)
         identity.Add(self._dot, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=6)
         identity.Add(self._name, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=8)
-        for label in (self._index, unit, quantity, price, net):
+        for label in (self._index, unit, quantity, price, after_discount, discount, net):
             identity.Add(label, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=8)
         identity.Add(vat, flag=wx.ALIGN_CENTER_VERTICAL)
 

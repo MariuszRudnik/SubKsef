@@ -3,7 +3,14 @@ from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from subksef.invoice.fa3 import Invoice, InvoiceReadError, LineItem, Party
+from subksef.invoice.fa3 import (
+    Invoice,
+    InvoiceReadError,
+    LineItem,
+    Party,
+    granted_discount,
+    price_after_discount,
+)
 
 DOCUMENT_TYPES = frozenset(
     {
@@ -217,16 +224,33 @@ def _line(row: list[str], goods: dict[str, list[str]]) -> LineItem:
     code = _field(row, 2)
     product = goods.get(code, [])
     name = _field(product, 4) or _field(row, 21) or code
+    unit_price = _field(row, 13)
+    quantity = _field(row, 10)
+    net_value = _field(row, 16)
     return LineItem(
         number=_field(row, 0),
         name=name,
         index=code,
         gtin=_field(product, 3),
         unit=_field(row, 9),
-        quantity=_quantity(_field(row, 10)),
-        unit_price=_amount(_field(row, 13)),
-        net_value=_amount(_field(row, 16)),
+        quantity=_quantity(quantity),
+        unit_price=_amount(unit_price),
+        net_value=_amount(net_value),
         vat_rate=_quantity(_field(row, 15)),
+        price_after_discount=price_after_discount(
+            unit_price,
+            quantity,
+            net_value,
+            discount_amount=_field(row, 7),
+            discount_percent=_field(row, 8),
+        ),
+        discount_amount=granted_discount(
+            unit_price,
+            quantity,
+            net_value,
+            discount_amount=_field(row, 7),
+            discount_percent=_field(row, 8),
+        ),
     )
 
 

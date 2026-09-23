@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -52,6 +52,8 @@ class LineItem:
     unit_price: str
     net_value: str
     vat_rate: str
+    price_after_discount: str = ""
+    discount_amount: str = ""
 
 
 @dataclass(frozen=True)
@@ -123,17 +125,103 @@ def _party(element: ET.Element | None) -> Party:
 
 
 def _line(row: ET.Element) -> LineItem:
+    unit_price = _text(row, "P_9A")
+    quantity = _text(row, "P_8B")
+    net_value = _text(row, "P_11")
+    discount = _text(row, "P_10")
     return LineItem(
         number=_text(row, "NrWierszaFa"),
         name=_text(row, "P_7"),
         index=_text(row, "Indeks"),
         gtin=_text(row, "GTIN"),
         unit=_text(row, "P_8A"),
-        quantity=_text(row, "P_8B"),
-        unit_price=_amount(_text(row, "P_9A")),
-        net_value=_amount(_text(row, "P_11")),
+        quantity=quantity,
+        unit_price=_amount(unit_price),
+        net_value=_amount(net_value),
         vat_rate=_text(row, "P_12"),
+        price_after_discount=price_after_discount(
+            unit_price,
+            quantity,
+            net_value,
+            discount_amount=discount,
+        ),
+        discount_amount=granted_discount(
+            unit_price,
+            quantity,
+            net_value,
+            discount_amount=discount,
+        ),
     )
+
+
+def granted_discount(
+    unit_price: str,
+    quantity: str,
+    net_value: str,
+    discount_amount: str = "",
+    discount_percent: str = "",
+) -> str:
+    amount = _parse_money(discount_amount) or Decimal("0")
+    percent = _parse_money(discount_percent) or Decimal("0")
+    price = _parse_money(unit_price)
+    quantity_value = _parse_money(quantity)
+    if amount != 0:
+        value = amount
+    elif percent != 0 and price is not None and quantity_value not in (None, Decimal("0")):
+        value = price * quantity_value * percent / Decimal("100")
+    elif price is not None and quantity_value not in (None, Decimal("0")):
+        net = _parse_money(net_value)
+        value = price * quantity_value - net if net is not None else Decimal("0")
+    else:
+        value = Decimal("0")
+    if value < 0:
+        value = Decimal("0")
+    return _amount(str(value.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)))
+
+
+def price_after_discount(
+    unit_price: str,
+    quantity: str,
+    net_value: str,
+    discount_amount: str = "",
+    discount_percent: str = "",
+) -> str:
+    price = _parse_money(unit_price)
+    if price is None:
+        return _amount(unit_price)
+    percent = _parse_money(discount_percent) or Decimal("0")
+    amount = _parse_money(discount_amount) or Decimal("0")
+    quantity_value = _parse_money(quantity)
+    if percent != 0:
+        after = price * (Decimal("1") - percent / Decimal("100"))
+    elif amount != 0:
+        if quantity_value not in (None, Decimal("0")):
+            after = price - (amount / quantity_value)
+        else:
+            after = price - amount
+    else:
+        net = _parse_money(net_value)
+        if net is None or quantity_value in (None, Decimal("0")):
+            return _amount(unit_price)
+        after = net / quantity_value
+    after = after.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    if after == price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP):
+        return _amount(unit_price)
+    return _amount(str(after))
+
+
+def _parse_money(value: str) -> Decimal | None:
+    if not value or not value.strip():
+        return None
+    text = value.strip().replace(" ", "").replace("\xa0", "")
+    if "," in text and "." in text:
+        text = text.replace(".", "").replace(",", ".")
+    elif "," in text:
+        text = text.replace(",", ".")
+    try:
+        return Decimal(text)
+    except InvalidOperation:
+        return None
 
 
 def _payment_due(payment: ET.Element | None) -> str:

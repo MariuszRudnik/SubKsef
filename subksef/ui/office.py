@@ -1,4 +1,6 @@
 import wx
+import wx.lib.statbmp as statbmp
+import wx.lib.stattext as stattext
 
 WHITE = wx.Colour(255, 255, 255)
 CANVAS = wx.Colour(243, 243, 243)
@@ -42,8 +44,8 @@ class CommandButton(wx.Panel):
         self._handler = handler
         self._enabled = True
         self.SetBackgroundColour(RIBBON)
-        picture = wx.StaticBitmap(self, bitmap=icon(art_id, ICON_SIZE))
-        self._label = wx.StaticText(self, label=label)
+        picture = statbmp.GenStaticBitmap(self, wx.ID_ANY, icon(art_id, ICON_SIZE))
+        self._label = stattext.GenStaticText(self, label=label)
         self._label.SetFont(face(9))
         self._label.SetForegroundColour(TEXT)
         root = wx.BoxSizer(wx.VERTICAL)
@@ -52,7 +54,7 @@ class CommandButton(wx.Panel):
         self.SetMinSize((BUTTON_WIDTH, BUTTON_HEIGHT))
         self.SetSizer(root)
         for window in (self, picture, self._label):
-            window.Bind(wx.EVT_LEFT_UP, self._click)
+            window.Bind(wx.EVT_LEFT_DOWN, self._click)
             window.Bind(wx.EVT_ENTER_WINDOW, self._enter)
             window.Bind(wx.EVT_LEAVE_WINDOW, self._leave)
 
@@ -97,8 +99,7 @@ class Ribbon(wx.Panel):
         super().__init__(parent)
         self.SetBackgroundColour(RIBBON)
         self._names: list[str] = []
-        self._tabs: dict[str, wx.StaticText] = {}
-        self._marks: dict[str, wx.Panel] = {}
+        self._tabs: dict[str, RibbonTab] = {}
         self._pages: dict[str, wx.Panel] = {}
         self.on_select = None
         self._tab_row = wx.BoxSizer(wx.HORIZONTAL)
@@ -109,37 +110,63 @@ class Ribbon(wx.Panel):
         self.SetSizer(root)
 
     def add_page(self, name: str, page: wx.Panel):
-        tab = wx.StaticText(self, label=name)
-        tab.SetFont(face(10))
-        mark = wx.Panel(self, size=(-1, 3))
-        tab_box = wx.BoxSizer(wx.VERTICAL)
-        tab_box.Add(tab, flag=wx.ALIGN_CENTER | wx.LEFT | wx.RIGHT, border=12)
-        tab_box.Add(mark, flag=wx.EXPAND | wx.TOP, border=6)
-        self._tab_row.Add(tab_box, flag=wx.RIGHT, border=4)
-        tab.Bind(wx.EVT_LEFT_UP, lambda event, page_name=name: self.select(page_name))
+        tab = RibbonTab(self, name, lambda event, page_name=name: self.select(page_name))
+        self._tab_row.Add(tab, flag=wx.RIGHT | wx.ALIGN_BOTTOM, border=4)
         self._names.append(name)
         self._tabs[name] = tab
-        self._marks[name] = mark
         self._pages[name] = page
         self._commands.Add(page, proportion=1, flag=wx.EXPAND)
         if len(self._names) == 1:
             self.select(name)
         else:
             page.Hide()
-            mark.SetBackgroundColour(RIBBON)
+            tab.set_active(False)
 
     def select(self, name: str):
         for page_name, page in self._pages.items():
             active = page_name == name
             page.Show(active)
-            self._tabs[page_name].SetForegroundColour(ACCENT if active else TEXT)
-            self._marks[page_name].SetBackgroundColour(ACCENT if active else RIBBON)
+            self._tabs[page_name].set_active(active)
         self.Layout()
         if self.on_select is not None:
             self.on_select(name)
         parent = self.GetParent()
         if parent is not None:
             parent.Layout()
+
+
+class RibbonTab(wx.Panel):
+    def __init__(self, parent: wx.Window, label: str, on_click):
+        super().__init__(parent)
+        self.SetBackgroundColour(RIBBON)
+        self._label = stattext.GenStaticText(self, label=label)
+        self._label.SetFont(face(10))
+        self._label.SetForegroundColour(TEXT)
+        self._mark = wx.Panel(self, size=(-1, 3))
+        self._mark.SetMinSize((-1, 3))
+        self._mark.SetBackgroundColour(RIBBON)
+        root = wx.BoxSizer(wx.VERTICAL)
+        root.Add(self._label, flag=wx.ALIGN_CENTER | wx.LEFT | wx.RIGHT | wx.TOP, border=12)
+        root.Add(self._mark, flag=wx.EXPAND | wx.TOP, border=6)
+        self.SetSizer(root)
+        for window in (self, self._label, self._mark):
+            window.Bind(wx.EVT_LEFT_DOWN, on_click)
+
+    def set_active(self, active: bool):
+        self._label.SetForegroundColour(ACCENT if active else TEXT)
+        self._mark.SetBackgroundColour(ACCENT if active else RIBBON)
+        self._label.Refresh()
+        self._mark.Refresh()
+
+
+def fit_on_screen(frame: wx.Frame):
+    anchor = frame.GetParent() or frame
+    index = wx.Display.GetFromWindow(anchor)
+    if index == wx.NOT_FOUND:
+        index = 0
+    area = wx.Display(index).GetClientArea()
+    frame.SetSize(area.GetSize())
+    frame.SetPosition(area.GetPosition())
 
 
 def card(parent: wx.Window) -> tuple[wx.Panel, wx.Panel]:
