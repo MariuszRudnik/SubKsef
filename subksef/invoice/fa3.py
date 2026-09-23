@@ -163,19 +163,12 @@ def unit_discount(
     price_value = price.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     percent = _parse_money(discount_percent) or Decimal("0")
     amount = _parse_money(discount_amount) or Decimal("0")
-    quantity_value = _parse_money(quantity)
-    if percent != 0:
-        per_unit = price_value * percent / Decimal("100")
-    elif amount != 0 and quantity_value not in (None, Decimal("0")):
-        per_unit = amount / quantity_value
-    elif amount != 0:
+    if amount != 0:
         per_unit = amount
+    elif percent != 0:
+        per_unit = price_value * percent / Decimal("100")
     else:
-        net = _parse_money(net_value)
-        if net is not None and quantity_value not in (None, Decimal("0")):
-            per_unit = price_value - (net / quantity_value)
-        else:
-            per_unit = Decimal("0")
+        per_unit = Decimal("0")
     per_unit = per_unit.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     if per_unit < 0:
         per_unit = Decimal("0.00")
