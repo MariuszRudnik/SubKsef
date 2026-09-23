@@ -1,4 +1,3 @@
-import csv
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
@@ -56,27 +55,28 @@ def write_epp(invoices: tuple[Invoice, ...], path: Path) -> None:
         raise InvoiceReadError("Brak dokumentu do zapisania.")
     kind, _number = _document_identity(invoices[0])
     own = invoices[0].buyer if kind in PURCHASE_TYPES else invoices[0].seller
-    rows: list[list[str]] = [["[INFO]"], _info_row(own)]
-    goods: list[tuple[str, LineItem]] = []
-    seen: set[str] = set()
+    blocks: list[str] = [_section("[INFO]", [_info_row(own)], INFO_TEXT)]
+
+    contractors: dict[str, object] = {}
+    goods: dict[str, LineItem] = {}
+    endings: list[tuple[str, str]] = []
     for invoice in invoices:
         document_kind, number = _document_identity(invoice)
         contractor = invoice.seller if document_kind in PURCHASE_TYPES else invoice.buyer
-        rows.append(["[NAGLOWEK]"])
-        rows.append(_document_row(invoice, document_kind, number, contractor))
-        rows.append(["[ZAWARTOSC]"])
+        code = _party_code(contractor)
+        contractors.setdefault(code, contractor)
+        line_rows = []
         for line in invoice.lines:
-            code = _goods_code(line.index, line.number)
-            rows.append(_line_row(line, code))
-            if code not in seen:
-                seen.add(code)
-                goods.append((code, line))
-    rows.append(["[NAGLOWEK]"])
-    rows.append(["TOWARY"])
-    rows.append(["[ZAWARTOSC]"])
-    for code, line in goods:
-        rows.append(["1", code, "", line.gtin, line.name, "", line.name])
-    _write_csv(path, rows)
+            goods_code = _goods_code(line.index, line.number)
+            line_rows.append(_line_row(line, goods_code))
+            goods.setdefault(goods_code, line)
+        blocks.append(_section("[NAGLOWEK]", [_document_row(invoice, document_kind, number, code, contractor)], DOCUMENT_TEXT))
+        blocks.append(_section("[ZAWARTOSC]", line_rows, LINE_TEXT))
+        endings.append((f"{document_kind} {number[:30]}", _epp_date(invoice.delivery_date or invoice.issue_date)))
+
+    blocks.extend(_catalog(contractors, goods, endings))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes("".join(blocks).encode("cp1250", errors="replace"))
 
 
 def write_fa(invoice: Invoice, path: Path) -> None:
@@ -152,67 +152,99 @@ def _party(root: ET.Element, tag: str, party, buyer: bool) -> None:
         _fa(element, "GV", "2")
 
 
+INFO_TEXT = {0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 18, 20, 21, 22}
+DOCUMENT_TEXT = {
+    0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 26, 31, 33,
+    41, 42, 43, 46, 48, 49, 50, 51, 55, 57, 59, 60,
+}
+LINE_TEXT = {2, 9, 20, 21}
+CONTRACTOR_TEXT = {1, 2, 3, 4, 5, 6, 7, 8, 27, 28}
+GOODS_TEXT = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 16, 18, 19, 20, 26, 29, 31}
+
+
 def _info_row(party) -> list[str]:
+    street, postal, city = _split_address(party.address)
     row = [""] * 24
     row[0] = "1.11"
-    row[1] = "3"
+    row[1] = "1"
     row[2] = "1250"
     row[3] = "Subksef"
-    row[4] = (_digits(party.nip) or party.name)[:20]
+    row[4] = _party_code(party)
     row[5] = party.name[:40]
-    row[6] = party.name
-    row[9] = party.address
+    row[6] = party.name[:80]
+    row[7] = city
+    row[8] = postal
+    row[9] = street
     row[10] = party.nip
     row[15] = "0"
     row[18] = "Subksef"
     row[19] = datetime.now().strftime("%Y%m%d%H%M%S")
+    row[20] = "Polska"
+    row[21] = "PL"
     row[23] = "0"
     return row
 
 
-def _document_row(invoice: Invoice, kind: str, number: str, contractor) -> list[str]:
+def _document_row(invoice: Invoice, kind: str, number: str, code: str, contractor) -> list[str]:
+    street, postal, city = _split_address(contractor.address)
     row = [""] * 62
     row[0] = kind
     row[1] = "1"
-    row[3] = number
-    row[6] = number
-    row[11] = (_digits(contractor.nip) or contractor.name)[:20]
+    row[2] = "0"
+    row[3] = _doc_number(number)
+    row[6] = number[:30]
+    row[11] = code
     row[12] = contractor.name[:40]
-    row[13] = contractor.name
-    row[16] = contractor.address
-    row[17] = contractor.nip
+    row[13] = contractor.name[:255]
+    row[14] = city
+    row[15] = postal
+    row[16] = street
+    row[17] = contractor.nip[:20]
+    row[18] = "Zakup" if kind in PURCHASE_TYPES else "Sprzedaż"
     row[21] = _epp_date(invoice.issue_date)
-    row[22] = _epp_date(invoice.delivery_date)
-    row[23] = _epp_date(invoice.delivery_date)
+    row[22] = _epp_date(invoice.delivery_date or invoice.issue_date)
+    row[23] = row[22]
     row[24] = str(len(invoice.lines))
     row[25] = "1"
+    row[26] = "Detaliczna"
     row[27] = _epp_amount(invoice.net)
     row[28] = _epp_amount(invoice.vat)
     row[29] = _epp_amount(invoice.gross)
     row[30] = _epp_amount(invoice.net)
-    row[33] = invoice.payment_form
+    row[32] = "0.0000"
+    row[33] = invoice.payment_form[:30]
     row[34] = _epp_date(invoice.payment_due)
     row[35] = "0.0000"
     row[36] = _epp_amount(invoice.gross)
+    row[37] = "0"
+    row[38] = "0"
     row[39] = "1"
+    row[40] = "0"
+    row[44] = "0.0000"
+    row[45] = "0.0000"
     row[46] = invoice.currency or "PLN"
     row[47] = "1.0000"
+    row[52] = "0"
+    row[53] = "0"
+    row[54] = "0"
+    row[56] = "0.0000"
+    row[58] = "0.0000"
+    row[59] = "Polska"
+    row[60] = "PL"
     row[61] = "0"
     return row
 
 
-def _line_row(line, code: str) -> list[str]:
+def _line_row(line: LineItem, code: str) -> list[str]:
     net = _money(line.net_value)
     rate = _money(line.vat_rate)
     vat = (net * rate / Decimal("100")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     gross = net + vat
     unit_net = _money(line.unit_price)
-    unit_gross = (unit_net * (Decimal("1") + rate / Decimal("100"))).quantize(
-        Decimal("0.0001"),
-        rounding=ROUND_HALF_UP,
-    )
+    unit_gross = unit_net * (Decimal("1") + rate / Decimal("100"))
+    quantity = _epp_amount(_plain(line.quantity) or "0")
     row = [""] * 22
-    row[0] = line.number or "0"
+    row[0] = line.number or "1"
     row[1] = "1"
     row[2] = code
     row[3] = "1"
@@ -221,9 +253,9 @@ def _line_row(line, code: str) -> list[str]:
     row[6] = "1"
     row[7] = "0.0000"
     row[8] = "0.0000"
-    row[9] = line.unit or "szt."
-    row[10] = _epp_amount(_plain(line.quantity) or "0")
-    row[11] = row[10]
+    row[9] = (line.unit or "szt.")[:10]
+    row[10] = quantity
+    row[11] = quantity
     row[12] = "0.0000"
     row[13] = _epp_amount(line.unit_price)
     row[14] = _four(unit_gross)
@@ -233,6 +265,170 @@ def _line_row(line, code: str) -> list[str]:
     row[18] = _four(gross)
     row[19] = _epp_amount(line.net_value)
     return row
+
+
+def _catalog(contractors: dict[str, object], goods: dict[str, LineItem], endings: list[tuple[str, str]]) -> list[str]:
+    contractor_rows = [_contractor_row(code, party) for code, party in contractors.items()]
+    group_rows = [[code, "Podstawowa"] for code in contractors]
+    extra_rows = [[code, "0", "1", "0", "0", "0", "0"] for code in contractors]
+    goods_rows = [_goods_row(code, line) for code, line in goods.items()]
+    price_rows = [_price_row(code, line) for code, line in goods.items()]
+    goods_groups = [[code, "Podstawowa", ""] for code in goods]
+    goods_extra = [[code, "0", "0", "0.0000", "0", "0", "0"] for code in goods]
+    goods_cn = [[code, ""] for code in goods]
+    goods_jpk = [[code, *["0"] * 13] for code in goods]
+    done = [[label, stamp] for label, stamp in endings]
+    markers = [[label, *["0"] * 30] for label, _stamp in endings]
+    required = [[label, "0"] for label, _stamp in endings]
+    return [
+        _section("[NAGLOWEK]", [["KONTRAHENCI"]], {0}),
+        _section("[ZAWARTOSC]", contractor_rows, CONTRACTOR_TEXT),
+        _section("[NAGLOWEK]", [["GRUPYKONTRAHENTOW"]], {0}),
+        _section("[ZAWARTOSC]", group_rows, {0, 1}),
+        _section("[NAGLOWEK]", [["CECHYKONTRAHENTOW"]], {0}),
+        _section("[ZAWARTOSC]", [], set()),
+        _section("[NAGLOWEK]", [["DODATKOWEKONTRAHENTOW"]], {0}),
+        _section("[ZAWARTOSC]", extra_rows, {0}),
+        _section("[NAGLOWEK]", [["TOWARY"]], {0}),
+        _section("[ZAWARTOSC]", goods_rows, GOODS_TEXT),
+        _section("[NAGLOWEK]", [["CENNIK"]], {0}),
+        _section("[ZAWARTOSC]", price_rows, {0, 1}),
+        _section("[NAGLOWEK]", [["GRUPYTOWAROW"]], {0}),
+        _section("[ZAWARTOSC]", goods_groups, {0, 1}),
+        _section("[NAGLOWEK]", [["CECHYTOWAROW"]], {0}),
+        _section("[ZAWARTOSC]", [], set()),
+        _section("[NAGLOWEK]", [["DODATKOWETOWAROW"]], {0}),
+        _section("[ZAWARTOSC]", goods_extra, {0}),
+        _section("[NAGLOWEK]", [["TOWARYKODYCN"]], {0}),
+        _section("[ZAWARTOSC]", goods_cn, {0}),
+        _section("[NAGLOWEK]", [["TOWARYGRUPYJPKVAT"]], {0}),
+        _section("[ZAWARTOSC]", goods_jpk, {0}),
+        _section("[NAGLOWEK]", [["DATYZAKONCZENIA"]], {0}),
+        _section("[ZAWARTOSC]", done, {0}),
+        _section("[NAGLOWEK]", [["NUMERYIDENTYFIKACYJNENABYWCOW"]], {0}),
+        _section("[ZAWARTOSC]", [], set()),
+        _section("[NAGLOWEK]", [["PRZYCZYNYKOREKT"]], {0}),
+        _section("[ZAWARTOSC]", [], set()),
+        _section("[NAGLOWEK]", [["DOKUMENTYFISKALNEVAT"]], {0}),
+        _section("[ZAWARTOSC]", [], set()),
+        _section("[NAGLOWEK]", [["OPLATYDODATKOWE"]], {0}),
+        _section("[ZAWARTOSC]", [], set()),
+        _section("[NAGLOWEK]", [["WYMAGALNOSCMPP"]], {0}),
+        _section("[ZAWARTOSC]", required, {0}),
+        _section("[NAGLOWEK]", [["OPLATACUKROWA"]], {0}),
+        _section("[ZAWARTOSC]", [], set()),
+        _section("[NAGLOWEK]", [["DOKUMENTYZNACZNIKIJPKVAT"]], {0}),
+        _section("[ZAWARTOSC]", markers, {0}),
+        _section("[NAGLOWEK]", [["INFORMACJEWSTO"]], {0}),
+        _section("[ZAWARTOSC]", [], set()),
+        _section("[NAGLOWEK]", [["DATYUJECIAKOREKT"]], {0}),
+        _section("[ZAWARTOSC]", [], set()),
+    ]
+
+
+def _contractor_row(code: str, party) -> list[str]:
+    street, postal, city = _split_address(party.address)
+    row = [""] * 30
+    row[0] = "0"
+    row[1] = code
+    row[2] = party.name[:40]
+    row[3] = party.name[:255]
+    row[4] = city
+    row[5] = postal
+    row[6] = street
+    row[7] = party.nip
+    row[27] = "Polska"
+    row[28] = "PL"
+    row[29] = "0"
+    return row
+
+
+def _goods_row(code: str, line: LineItem) -> list[str]:
+    rate = _plain(line.vat_rate) or "23"
+    if "." in rate:
+        rate = rate.split(".", 1)[0]
+    name = (line.name or code)[:50]
+    unit = (line.unit or "szt.")[:10]
+    row = [""] * 42
+    row[0] = "1"
+    row[1] = code
+    row[3] = line.gtin or code
+    row[4] = name
+    row[6] = name
+    row[9] = unit
+    row[10] = rate
+    row[11] = _epp_amount(rate)
+    row[12] = rate
+    row[13] = _epp_amount(rate)
+    row[14] = "0.0000"
+    row[15] = "0.0000"
+    row[17] = "0"
+    row[21] = "0.0000"
+    row[22] = "0"
+    row[25] = "0"
+    row[26] = unit
+    row[27] = "0.0000"
+    row[28] = "0.0000"
+    row[30] = "0"
+    row[32] = "0"
+    row[33] = "0"
+    return row
+
+
+def _price_row(code: str, line: LineItem) -> list[str]:
+    rate = _money(line.vat_rate)
+    net = _money(line.unit_price)
+    gross = net * (Decimal("1") + rate / Decimal("100"))
+    return [code, "Detaliczna", _four(net), _four(gross), "0.0000", "0.0000", _four(net)]
+
+
+def _party_code(party) -> str:
+    return (_digits(party.nip) or party.name or "KONTRAHENT")[:20]
+
+
+def _doc_number(number: str) -> str:
+    digits = ""
+    for character in number:
+        if character.isdigit():
+            digits += character
+        elif digits:
+            break
+    return str(int(digits)) if digits else "1"
+
+
+def _split_address(address: str) -> tuple[str, str, str]:
+    parts = [
+        part.strip()
+        for part in address.split(",")
+        if part.strip() and part.strip() not in {"PL", "Polska"}
+    ]
+    street = parts[0] if parts else ""
+    postal = ""
+    city = ""
+    if len(parts) > 1:
+        bits = parts[1].split(" ", 1)
+        if bits and bits[0][:1].isdigit():
+            postal = bits[0]
+            city = bits[1] if len(bits) > 1 else ""
+        else:
+            city = parts[1]
+    return street[:50], postal[:6], city[:30]
+
+
+def _section(label: str, rows: list[list[str]], text_fields: set[int]) -> str:
+    lines = [label]
+    lines.extend(_format_row(row, text_fields) for row in rows)
+    return "\r\n".join(lines) + "\r\n\r\n"
+
+
+def _format_row(row: list[str], text_fields: set[int]) -> str:
+    cells = []
+    for index, value in enumerate(row):
+        if index in text_fields and value:
+            cells.append('"' + value.replace('"', '""') + '"')
+        else:
+            cells.append(value)
+    return ",".join(cells)
 
 
 def _document_identity(invoice: Invoice) -> tuple[str, str]:
@@ -245,26 +441,6 @@ def _document_identity(invoice: Invoice) -> tuple[str, str]:
 def _goods_code(index: str, number: str) -> str:
     code = index.strip() or f"P{number or '0'}"
     return code[:20]
-
-
-def _write_csv(path: Path, rows: list[list[str]]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    lines = []
-    for row in rows:
-        if len(row) == 1 and row[0].startswith("[") and row[0].endswith("]"):
-            lines.append(row[0])
-            continue
-        buffer = csv.StringIO(newline="")
-        csv.writer(
-            buffer,
-            delimiter=",",
-            quotechar='"',
-            lineterminator="",
-            quoting=csv.QUOTE_MINIMAL,
-        ).writerow(row)
-        lines.append(buffer.getvalue())
-    text = "\r\n".join(lines) + "\r\n"
-    path.write_bytes(text.encode("cp1250", errors="replace"))
 
 
 def _fa(parent: ET.Element, name: str, text: str = "", **attrs: str) -> ET.Element:
