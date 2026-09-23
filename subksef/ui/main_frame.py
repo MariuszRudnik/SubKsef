@@ -7,6 +7,15 @@ from subksef.invoice.fa3 import Invoice, InvoiceReadError, read_invoice
 from subksef.ui.edit_frame import EditFrame
 from subksef.ui.goods_panel import GoodsPanel
 from subksef.ui.missing_frame import MissingFrame
+from subksef.ui.office import (
+    CANVAS,
+    CommandButton,
+    Ribbon,
+    RibbonGroup,
+    card,
+    face,
+    field_label,
+)
 from subksef.ui.preview_frame import PreviewFrame
 
 SOURCE_WILDCARD = (
@@ -29,70 +38,98 @@ def _find_goods(window: wx.Window) -> GoodsPanel | None:
 class MainFrame(wx.Frame):
     def __init__(self):
         super().__init__(None, title="Subksef", size=(900, 560))
-        self.SetBackgroundColour(wx.WHITE)
+        self.SetBackgroundColour(CANVAS)
+        self.CreateStatusBar()
+        self.SetStatusText("Gotowe")
 
         panel = wx.Panel(self)
-        panel.SetBackgroundColour(wx.WHITE)
+        panel.SetBackgroundColour(CANVAS)
+        panel.SetFont(face())
 
-        title = wx.StaticText(panel, label="Subksef")
-        title_font = title.GetFont()
-        title_font.SetPointSize(22)
-        title_font.SetWeight(wx.FONTWEIGHT_BOLD)
-        title.SetFont(title_font)
+        self._ribbon = Ribbon(panel)
+        self._ribbon.on_select = self._show_page
+        goods_shell, goods_body = card(panel)
+        goods_body_sizer = wx.BoxSizer(wx.VERTICAL)
+        self.goods = GoodsPanel(goods_body)
+        goods_body_sizer.Add(self.goods, proportion=1, flag=wx.EXPAND)
+        goods_body.SetSizer(goods_body_sizer)
+        self._goods_card = goods_shell
+        self.goods.selection_changed = self._on_goods_selection
+        self._ribbon.add_page("Faktury", self._invoice_commands(self._ribbon, panel))
+        self._ribbon.add_page("Towary", self._goods_commands(self._ribbon))
 
-        notebook = wx.Notebook(panel)
-        invoice_page = wx.Panel(notebook)
-        invoice_page.SetBackgroundColour(wx.WHITE)
-        notebook.AddPage(invoice_page, "Faktury")
-        notebook.AddPage(GoodsPanel(notebook), "Towary")
+        root = wx.BoxSizer(wx.VERTICAL)
+        root.Add(self._ribbon, flag=wx.EXPAND)
+        root.Add(self._invoice_card, proportion=1, flag=wx.EXPAND | wx.ALL, border=16)
+        root.Add(self._goods_card, proportion=1, flag=wx.EXPAND | wx.ALL, border=16)
+        panel.SetSizer(root)
+        frame = wx.BoxSizer(wx.VERTICAL)
+        frame.Add(panel, proportion=1, flag=wx.EXPAND)
+        self.SetSizer(frame)
+        self._show_page("Faktury")
+        self.Centre()
 
-        source_label = wx.StaticText(invoice_page, label="Plik źródłowy")
-        self.source_path = wx.TextCtrl(invoice_page)
-        source_button = wx.Button(invoice_page, label="Wybierz")
+    def _invoice_commands(self, parent: wx.Window, host: wx.Window) -> wx.Panel:
+        page = wx.Panel(parent)
+        page.SetBackgroundColour(parent.GetBackgroundColour())
+        source = RibbonGroup(page, "Plik źródłowy")
+        source.add(CommandButton(source, "Wybierz plik", wx.ART_FILE_OPEN, self.on_choose_source))
+        source.add(CommandButton(source, "Podgląd", wx.ART_FIND, self.on_preview))
+        source.add(CommandButton(source, "Edycja", wx.ART_EDIT, self.on_edit))
+        source.add(CommandButton(source, "Niedodane", wx.ART_LIST_VIEW, self.on_missing))
+        convert = RibbonGroup(page, "Konwersja")
+        convert.add(CommandButton(convert, "Konwertuj", wx.ART_GO_FORWARD, self.on_convert))
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        row.Add(source, flag=wx.EXPAND | wx.RIGHT, border=8)
+        row.Add(convert, flag=wx.EXPAND)
+        page.SetSizer(row)
+
+        shell, card_body = card(host)
+        self._invoice_card = shell
+        self.source_path = wx.TextCtrl(card_body)
+        source_button = wx.Button(card_body, label="Wybierz")
         source_button.Bind(wx.EVT_BUTTON, self.on_choose_source)
-        preview_button = wx.Button(invoice_page, label="Podgląd")
-        preview_button.Bind(wx.EVT_BUTTON, self.on_preview)
-        edit_button = wx.Button(invoice_page, label="Edycja")
-        edit_button.Bind(wx.EVT_BUTTON, self.on_edit)
-        missing_button = wx.Button(invoice_page, label="Niedodane")
-        missing_button.Bind(wx.EVT_BUTTON, self.on_missing)
-
-        output_label = wx.StaticText(
-            invoice_page,
-            label="Tu powstanie przerobiony plik",
-        )
-        self.output_path = wx.TextCtrl(invoice_page)
-        output_button = wx.Button(invoice_page, label="Wybierz")
+        self.output_path = wx.TextCtrl(card_body)
+        output_button = wx.Button(card_body, label="Wybierz")
         output_button.Bind(wx.EVT_BUTTON, self.on_choose_output)
-
-        convert_button = wx.Button(invoice_page, label="Konwertuj")
-        convert_button.Bind(wx.EVT_BUTTON, self.on_convert)
-
         source_row = wx.BoxSizer(wx.HORIZONTAL)
         source_row.Add(self.source_path, proportion=1, flag=wx.EXPAND | wx.RIGHT, border=8)
-        source_row.Add(source_button, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=8)
-        source_row.Add(preview_button, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=8)
-        source_row.Add(edit_button, flag=wx.ALIGN_CENTER_VERTICAL | wx.RIGHT, border=8)
-        source_row.Add(missing_button, flag=wx.ALIGN_CENTER_VERTICAL)
-
+        source_row.Add(source_button, flag=wx.ALIGN_CENTER_VERTICAL)
         output_row = wx.BoxSizer(wx.HORIZONTAL)
         output_row.Add(self.output_path, proportion=1, flag=wx.EXPAND | wx.RIGHT, border=8)
         output_row.Add(output_button, flag=wx.ALIGN_CENTER_VERTICAL)
+        body = wx.BoxSizer(wx.VERTICAL)
+        body.Add(field_label(card_body, "Plik źródłowy"), flag=wx.ALL, border=16)
+        body.Add(source_row, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
+        body.Add(field_label(card_body, "Tu powstanie przerobiony plik"), flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
+        body.Add(output_row, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
+        card_body.SetSizer(body)
+        return page
 
-        invoice = wx.BoxSizer(wx.VERTICAL)
-        invoice.Add(source_label, flag=wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, border=16)
-        invoice.Add(source_row, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
-        invoice.Add(output_label, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
-        invoice.Add(output_row, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
-        invoice.Add(convert_button, flag=wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, border=8)
-        invoice_page.SetSizer(invoice)
+    def _goods_commands(self, parent: wx.Window) -> wx.Panel:
+        page = wx.Panel(parent)
+        page.SetBackgroundColour(parent.GetBackgroundColour())
+        incoming = RibbonGroup(page, "Import")
+        incoming.add(CommandButton(incoming, "Wybierz EPP", wx.ART_FILE_OPEN, self.goods.on_choose))
+        incoming.add(CommandButton(incoming, "Wczytaj", wx.ART_GO_DOWN, self.goods.on_load))
+        goods = RibbonGroup(page, "Towary")
+        self._remove_goods = CommandButton(goods, "Usuń", wx.ART_DELETE, self.goods.on_remove)
+        self._remove_goods.Enable(False)
+        goods.add(self._remove_goods)
+        row = wx.BoxSizer(wx.HORIZONTAL)
+        row.Add(incoming, flag=wx.EXPAND | wx.RIGHT, border=8)
+        row.Add(goods, flag=wx.EXPAND)
+        page.SetSizer(row)
+        return page
 
-        root = wx.BoxSizer(wx.VERTICAL)
-        root.Add(title, flag=wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, border=16)
-        root.Add(notebook, proportion=1, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=12)
+    def _show_page(self, name: str):
+        invoice = name == "Faktury"
+        self._invoice_card.Show(invoice)
+        self._goods_card.Show(not invoice)
+        self.Layout()
 
-        panel.SetSizer(root)
-        self.Centre()
+    def _on_goods_selection(self, selected: bool):
+        self._remove_goods.Enable(selected)
 
     def on_choose_source(self, _event):
         with wx.FileDialog(
@@ -107,6 +144,7 @@ class MainFrame(wx.Frame):
 
         self.source_path.SetValue(path)
         self.output_path.SetValue(str(suggested_target(Path(path))))
+        self.SetStatusText(f"Wybrano plik: {Path(path).name}")
 
     def on_preview(self, _event):
         invoices = self._read_invoices()
@@ -236,6 +274,7 @@ class MainFrame(wx.Frame):
             )
             return
         self.output_path.SetValue(str(written[0]))
+        self.SetStatusText("Konwersja zakończona")
         wx.MessageBox(
             "Zapisano:\n" + "\n".join(str(path) for path in written),
             "Subksef",

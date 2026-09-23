@@ -6,11 +6,33 @@ from subksef.catalog.match import suggest_good
 from subksef.catalog.store import list_goods, list_states, save_replacement, skip_replacement
 from subksef.invoice.epp import CatalogItem
 from subksef.invoice.fa3 import Invoice, Party
+from subksef.ui.office import BORDER, CANVAS, MUTED, TEXT, WHITE, face
 
 RED = wx.Colour(198, 40, 40)
 YELLOW = wx.Colour(196, 145, 0)
 GREEN = wx.Colour(46, 125, 50)
 MATCH_LIMIT = 8
+
+
+def _legend(parent: wx.Window) -> wx.Panel:
+    bar = wx.Panel(parent)
+    bar.SetBackgroundColour(CANVAS)
+    row = wx.BoxSizer(wx.HORIZONTAL)
+    notes = (
+        (RED, "Czerwona zostaje z faktury."),
+        (YELLOW, "Żółta jest dopasowana po nazwie i cenie."),
+        (GREEN, "Zielona jest wybrana ręcznie."),
+    )
+    for colour, text in notes:
+        dot = wx.Panel(bar, size=(10, 10))
+        dot.SetMinSize((10, 10))
+        dot.SetBackgroundColour(colour)
+        label = wx.StaticText(bar, label=text)
+        label.SetForegroundColour(TEXT)
+        row.Add(dot, flag=wx.ALIGN_CENTER_VERTICAL | wx.LEFT, border=12)
+        row.Add(label, flag=wx.ALIGN_CENTER_VERTICAL | wx.LEFT | wx.RIGHT, border=8)
+    bar.SetSizer(row)
+    return bar
 
 
 def _rank(item: CatalogItem, query: str) -> int:
@@ -39,29 +61,25 @@ class EditFrame(wx.Frame):
         self._database = database
         self._index = 0
         super().__init__(parent, title="Edycja", size=(1100, 760))
-        self.SetBackgroundColour(wx.WHITE)
+        self.SetBackgroundColour(CANVAS)
 
         panel = wx.Panel(self)
-        panel.SetBackgroundColour(wx.WHITE)
+        panel.SetBackgroundColour(WHITE)
 
         self._title = wx.StaticText(panel, label="")
-        title_font = self._title.GetFont()
-        title_font.SetPointSize(16)
-        title_font.SetWeight(wx.FONTWEIGHT_BOLD)
-        self._title.SetFont(title_font)
+        self._title.SetFont(face(16, bold=True))
+        self._title.SetForegroundColour(TEXT)
 
         self._dates = wx.StaticText(panel, label="")
+        self._dates.SetForegroundColour(MUTED)
         self._seller = _PartyBox(panel, "Sprzedawca")
         self._buyer = _PartyBox(panel, "Nabywca")
         self._summary = wx.StaticText(panel, label="")
-        hint = wx.StaticText(
-            panel,
-            label="Czerwona zostaje z faktury. Żółta jest dopasowana po nazwie i cenie. Zielona jest wybrana ręcznie.",
-        )
+        hint = _legend(panel)
 
         self._scroll = wx.ScrolledWindow(panel, style=wx.VSCROLL)
         self._scroll.SetScrollRate(0, 16)
-        self._scroll.SetBackgroundColour(wx.WHITE)
+        self._scroll.SetBackgroundColour(WHITE)
         self._lines = wx.BoxSizer(wx.VERTICAL)
         self._scroll.SetSizer(self._lines)
 
@@ -87,7 +105,7 @@ class EditFrame(wx.Frame):
         root.Add(self._dates, flag=wx.ALIGN_CENTER | wx.TOP | wx.BOTTOM, border=8)
         root.Add(parties, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
         root.Add(self._summary, flag=wx.ALIGN_CENTER | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=8)
-        root.Add(hint, flag=wx.ALIGN_CENTER | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=12)
+        root.Add(hint, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=12)
         root.Add(self._scroll, proportion=1, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
         if len(self._invoices) > 1:
             root.Add(navigation, flag=wx.ALIGN_CENTER | wx.BOTTOM, border=8)
@@ -116,7 +134,7 @@ class EditFrame(wx.Frame):
 
     def _show_current(self):
         invoice = self._invoices[self._index]
-        self.SetTitle(f"Edycja {invoice.number}")
+        self.SetTitle(f"Edycja — {invoice.number or 'Faktura'}")
         self._title.SetLabel(invoice.number or "Faktura")
         self._dates.SetLabel(
             f"Wystawienie: {invoice.issue_date or '—'}    "
@@ -411,12 +429,14 @@ class _SuggestList(wx.Frame):
             parent,
             style=wx.FRAME_FLOAT_ON_PARENT | wx.FRAME_NO_TASKBAR | wx.BORDER_SIMPLE,
         )
-        self.SetBackgroundColour(wx.WHITE)
+        self.SetBackgroundColour(BORDER)
         self._list = wx.ListBox(self, style=wx.LB_SINGLE)
+        self._list.SetBackgroundColour(WHITE)
+        self._list.SetForegroundColour(TEXT)
         self._owner: _LineRow | None = None
         self._anchor: wx.Window | None = None
         box = wx.BoxSizer(wx.VERTICAL)
-        box.Add(self._list, proportion=1, flag=wx.EXPAND)
+        box.Add(self._list, proportion=1, flag=wx.EXPAND | wx.ALL, border=1)
         self.SetSizer(box)
         self._list.Bind(wx.EVT_LISTBOX_DCLICK, self._activate)
         self._list.Bind(wx.EVT_KEY_DOWN, self._on_key)
@@ -500,9 +520,8 @@ class _PartyBox:
     def __init__(self, parent: wx.Window, heading: str):
         self.sizer = wx.BoxSizer(wx.VERTICAL)
         title = wx.StaticText(parent, label=heading)
-        title_font = title.GetFont()
-        title_font.SetWeight(wx.FONTWEIGHT_BOLD)
-        title.SetFont(title_font)
+        title.SetFont(face(10, bold=True))
+        title.SetForegroundColour(TEXT)
         self._name = wx.StaticText(parent, label="")
         self._nip = wx.StaticText(parent, label="")
         self._address = wx.StaticText(parent, label="")

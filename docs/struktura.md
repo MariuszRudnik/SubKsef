@@ -22,6 +22,7 @@ subksef/
   ui/
     __init__.py
     main_frame.py            # okno główne
+    office.py                # kolory i wstążka w stylu Office
     goods_panel.py           # zakładka z bazą towarów
     preview_frame.py         # podgląd faktury
     missing_frame.py         # towary z faktury, których nie ma w bazie

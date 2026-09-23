@@ -4,6 +4,7 @@ from pathlib import Path
 from subksef.catalog.store import delete_good, import_goods, list_goods
 from subksef.invoice.epp import read_catalog
 from subksef.invoice.fa3 import InvoiceReadError
+from subksef.ui.office import WHITE, field_label
 
 COLUMNS = (
     ("Kod", 140),
@@ -16,9 +17,9 @@ COLUMNS = (
 class GoodsPanel(wx.Panel):
     def __init__(self, parent: wx.Window):
         super().__init__(parent)
-        self.SetBackgroundColour(wx.WHITE)
+        self.SetBackgroundColour(WHITE)
+        self.selection_changed = None
 
-        label = wx.StaticText(self, label="Plik EPP z towarami i usługami")
         self.path = wx.TextCtrl(self)
         choose = wx.Button(self, label="Wybierz")
         choose.Bind(wx.EVT_BUTTON, self.on_choose)
@@ -31,26 +32,36 @@ class GoodsPanel(wx.Panel):
         path_row.Add(load, flag=wx.ALIGN_CENTER_VERTICAL)
 
         self.status = wx.StaticText(self, label="")
-        search_label = wx.StaticText(self, label="Szukaj")
         self.search = wx.TextCtrl(self)
         self.search.Bind(wx.EVT_TEXT, self.on_search)
 
         self.table = wx.ListCtrl(self, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
+        self.table.SetBackgroundColour(WHITE)
         for index, (title, width) in enumerate(COLUMNS):
             self.table.InsertColumn(index, title, width=width)
-        remove = wx.Button(self, label="Usuń")
-        remove.Bind(wx.EVT_BUTTON, self.on_remove)
+        self.table.Bind(wx.EVT_LIST_ITEM_SELECTED, self._on_selection)
+        self.table.Bind(wx.EVT_LIST_ITEM_DESELECTED, self._on_selection)
+        self._remove = wx.Button(self, label="Usuń")
+        self._remove.Bind(wx.EVT_BUTTON, self.on_remove)
+        self._remove.Enable(False)
 
         root = wx.BoxSizer(wx.VERTICAL)
-        root.Add(label, flag=wx.LEFT | wx.RIGHT | wx.TOP | wx.BOTTOM, border=16)
+        root.Add(field_label(self, "Plik EPP z towarami i usługami"), flag=wx.ALL, border=16)
         root.Add(path_row, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
         root.Add(self.status, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
-        root.Add(search_label, flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
+        root.Add(field_label(self, "Szukaj"), flag=wx.LEFT | wx.RIGHT | wx.BOTTOM, border=8)
         root.Add(self.search, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
         root.Add(self.table, proportion=1, flag=wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, border=16)
-        root.Add(remove, flag=wx.ALIGN_LEFT | wx.LEFT | wx.BOTTOM, border=16)
+        root.Add(self._remove, flag=wx.ALIGN_LEFT | wx.LEFT | wx.BOTTOM, border=16)
         self.SetSizer(root)
         self.refresh()
+
+    def _on_selection(self, event):
+        selected = self.table.GetFirstSelected() != -1
+        self._remove.Enable(selected)
+        if self.selection_changed is not None:
+            self.selection_changed(selected)
+        event.Skip()
 
     def on_choose(self, _event):
         with wx.FileDialog(
@@ -130,6 +141,9 @@ class GoodsPanel(wx.Panel):
 
     def refresh(self):
         self.table.DeleteAllItems()
+        self._remove.Enable(False)
+        if self.selection_changed is not None:
+            self.selection_changed(False)
         try:
             items = list_goods(self.search.GetValue())
         except OSError:

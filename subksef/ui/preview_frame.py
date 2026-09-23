@@ -1,6 +1,7 @@
 import wx
 
 from subksef.invoice.fa3 import Invoice, Party
+from subksef.ui.office import CANVAS, MUTED, TEXT, WHITE, face
 
 LINE_COLUMNS = (
     ("Lp", 50),
@@ -20,23 +21,23 @@ class PreviewFrame(wx.Frame):
         self._invoices = invoice if isinstance(invoice, tuple) else (invoice,)
         self._index = 0
         super().__init__(parent, title="Podgląd", size=(1000, 720))
-        self.SetBackgroundColour(wx.WHITE)
+        self.SetBackgroundColour(CANVAS)
 
         panel = wx.Panel(self)
-        panel.SetBackgroundColour(wx.WHITE)
+        panel.SetBackgroundColour(WHITE)
 
         self._title = wx.StaticText(panel, label="")
-        title_font = self._title.GetFont()
-        title_font.SetPointSize(16)
-        title_font.SetWeight(wx.FONTWEIGHT_BOLD)
-        self._title.SetFont(title_font)
+        self._title.SetFont(face(16, bold=True))
+        self._title.SetForegroundColour(TEXT)
 
         self._dates = wx.StaticText(panel, label="")
+        self._dates.SetForegroundColour(MUTED)
         self._seller = _PartyBox(panel, "Sprzedawca")
         self._buyer = _PartyBox(panel, "Nabywca")
         self._summary = wx.StaticText(panel, label="")
 
         self._lines = wx.ListCtrl(panel, style=wx.LC_REPORT | wx.LC_SINGLE_SEL)
+        self._lines.SetBackgroundColour(WHITE)
         for index, (label, width) in enumerate(LINE_COLUMNS):
             self._lines.InsertColumn(index, label, width=width)
 
@@ -83,7 +84,7 @@ class PreviewFrame(wx.Frame):
 
     def _show_current(self):
         invoice = self._invoices[self._index]
-        self.SetTitle(f"Podgląd {invoice.number}")
+        self.SetTitle(f"Podgląd — {invoice.number or 'Faktura'}")
         self._title.SetLabel(invoice.number or "Faktura")
         self._dates.SetLabel(
             f"Wystawienie: {invoice.issue_date or '—'}    "
@@ -121,9 +122,8 @@ class _PartyBox:
     def __init__(self, parent: wx.Window, heading: str):
         self.sizer = wx.BoxSizer(wx.VERTICAL)
         title = wx.StaticText(parent, label=heading)
-        title_font = title.GetFont()
-        title_font.SetWeight(wx.FONTWEIGHT_BOLD)
-        title.SetFont(title_font)
+        title.SetFont(face(10, bold=True))
+        title.SetForegroundColour(TEXT)
         self._name = wx.StaticText(parent, label="")
         self._nip = wx.StaticText(parent, label="")
         self._address = wx.StaticText(parent, label="")

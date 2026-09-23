@@ -6,6 +6,7 @@ from subksef.catalog.match import is_missing
 from subksef.catalog.store import import_goods, list_goods, list_states, save_replacement
 from subksef.invoice.epp import CatalogItem
 from subksef.invoice.fa3 import Invoice, LineItem
+from subksef.ui.office import CANVAS, TEXT, WHITE, face
 
 REPLACED = frozenset({"auto", "reczna"})
 
@@ -13,18 +14,20 @@ REPLACED = frozenset({"auto", "reczna"})
 class MissingFrame(wx.Frame):
     def __init__(self, parent: wx.Window, invoices: tuple[Invoice, ...], database: Path | None = None):
         super().__init__(parent, title="Niedodane", size=(760, 520))
-        self.SetBackgroundColour(wx.WHITE)
+        self.SetBackgroundColour(CANVAS)
         self._database = database
         self._invoices = invoices
         self._rows: tuple[tuple[int, int, LineItem], ...] = ()
 
         panel = wx.Panel(self)
-        panel.SetBackgroundColour(wx.WHITE)
+        panel.SetBackgroundColour(WHITE)
         self._info = wx.StaticText(
             panel,
             label="Pozycje, których nie podmieniono na towar z bazy. Wpisz własny kod i nazwę.",
         )
         self._list = wx.ListBox(panel, style=wx.LB_SINGLE)
+        self._list.SetBackgroundColour(WHITE)
+        self._list.SetForegroundColour(TEXT)
         self._list.Bind(wx.EVT_LISTBOX, self._on_select)
 
         code_label = wx.StaticText(panel, label="Kod")
@@ -32,6 +35,7 @@ class MissingFrame(wx.Frame):
         name_label = wx.StaticText(panel, label="Nazwa")
         self._name = wx.TextCtrl(panel)
         self._add = wx.Button(panel, label="Dodaj")
+        self._add.SetFont(face(9, bold=True))
         self._add.Bind(wx.EVT_BUTTON, self._on_add)
         close = wx.Button(panel, label="Zamknij")
         close.Bind(wx.EVT_BUTTON, lambda _event: self.Close())
