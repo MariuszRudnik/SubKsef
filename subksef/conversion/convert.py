@@ -1,6 +1,7 @@
 from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from hashlib import md5
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -129,7 +130,7 @@ def write_epp(invoices: tuple[Invoice, ...], path: Path) -> None:
         contractors.setdefault(code, contractor)
         line_rows = []
         for line in invoice.lines:
-            goods_code = _goods_code(line.index, line.number)
+            goods_code = _goods_code(line)
             line_rows.append(_line_row(line, goods_code))
             goods.setdefault(goods_code, line)
         blocks.append(_section("[NAGLOWEK]", [_document_row(invoice, document_kind, number, code, contractor)], DOCUMENT_TEXT))
@@ -523,9 +524,24 @@ def _one_line(value: str) -> str:
     return " ".join(value.replace("\r", " ").replace("\n", " ").split())
 
 
-def _goods_code(index: str, number: str) -> str:
-    code = _one_line(index) or f"P{_one_line(number) or '0'}"
-    return code[:20]
+def _goods_code(line: LineItem) -> str:
+    code = _one_line(line.index)
+    if code:
+        return code[:20]
+    gtin = _one_line(line.gtin)
+    if gtin:
+        return gtin[:20]
+    # Unikalny symbol, żeby nie kolidował z krótkimi kodami w Subiekcie (np. P1).
+    key = "|".join(
+        (
+            _one_line(line.number),
+            _one_line(line.name),
+            _one_line(line.unit_price),
+            _one_line(line.quantity),
+        )
+    )
+    digest = md5(key.encode("utf-8")).hexdigest()[:12].upper()
+    return f"KS{digest}"[:20]
 
 
 def _fa(parent: ET.Element, name: str, text: str = "", **attrs: str) -> ET.Element:

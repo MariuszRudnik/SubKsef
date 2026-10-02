@@ -6,6 +6,7 @@ Aplikacja startuje z `main.py`. Okna i późniejsza logika mieszkają w pakiecie
 main.py                      # tylko start: wx.App i pokazanie okna
 docs/struktura.md            # ta instrukcja
 docs/epp.md                  # jak działa plik EPP Subiekta
+docs/xml-epp-problemy.md     # problemy przy konwersji XML → EPP (z praktyki)
 subksef/
   __init__.py
   invoice/
@@ -36,6 +37,7 @@ subksef/
 - Odczyt faktury z XML i pliku EPP jest w `subksef/invoice/`. Okno tylko pokazuje wynik.
 - Baza towarów leży w `data/towary.sqlite`. Zapis i odczyt są w `subksef/catalog/`. Zakładka tylko je wywołuje. Podmiana pozycji faktury zapisuje się obok, w tabeli `podmiany`, i nie dopisuje towaru z faktury do kartoteki.
 - Opis formatu EPP jest w `docs/epp.md`.
+- Problemy napotkane przy konwersji XML → EPP (Enter w nazwie, FZ, kody P1, dopasowanie) są w `docs/xml-epp-problemy.md`.
 - Przepisanie XML na EPP i EPP na XML jest w `subksef/conversion/`. Przycisk w oknie tylko je wywołuje.
 - Opis układu i zasad zostaje w `docs/`.
 
