@@ -45,7 +45,7 @@ def convert(
     suffix = source.suffix.lower()
     if suffix == ".xml":
         destination = _with_suffix(target, ".epp")
-        loaded = (read_invoice(source),)
+        loaded = _as_purchase((read_invoice(source),))
         invoices = with_replacements(loaded, _mapping(loaded, replacements))
         if use_discounted_price:
             invoices = _discounted_unit_prices(invoices)
@@ -134,7 +134,7 @@ def write_epp(invoices: tuple[Invoice, ...], path: Path) -> None:
             goods.setdefault(goods_code, line)
         blocks.append(_section("[NAGLOWEK]", [_document_row(invoice, document_kind, number, code, contractor)], DOCUMENT_TEXT))
         blocks.append(_section("[ZAWARTOSC]", line_rows, LINE_TEXT))
-        endings.append((f"{document_kind} {number[:30]}", _epp_date(invoice.delivery_date or invoice.issue_date)))
+        endings.append((f"{document_kind} {_one_line(number)[:30]}", _epp_date(invoice.delivery_date or invoice.issue_date)))
 
     blocks.extend(_catalog(contractors, goods, endings))
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -226,18 +226,19 @@ GOODS_TEXT = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 16, 18, 19, 20, 26, 29, 31}
 
 def _info_row(party) -> list[str]:
     street, postal, city = _split_address(party.address)
+    name = _one_line(party.name)
     row = [""] * 24
     row[0] = "1.11"
     row[1] = "1"
     row[2] = "1250"
     row[3] = "Subksef"
     row[4] = _party_code(party)
-    row[5] = party.name[:40]
-    row[6] = party.name[:80]
+    row[5] = name[:40]
+    row[6] = name[:80]
     row[7] = city
     row[8] = postal
     row[9] = street
-    row[10] = party.nip
+    row[10] = _one_line(party.nip)
     row[15] = "0"
     row[18] = "Subksef"
     row[19] = datetime.now().strftime("%Y%m%d%H%M%S")
@@ -249,6 +250,8 @@ def _info_row(party) -> list[str]:
 
 def _document_row(invoice: Invoice, kind: str, number: str, code: str, contractor) -> list[str]:
     street, postal, city = _split_address(contractor.address)
+    name = _one_line(contractor.name)
+    number = _one_line(number)
     row = [""] * 62
     row[0] = kind
     row[1] = "1"
@@ -256,12 +259,12 @@ def _document_row(invoice: Invoice, kind: str, number: str, code: str, contracto
     row[3] = _doc_number(number)
     row[6] = number[:30]
     row[11] = code
-    row[12] = contractor.name[:40]
-    row[13] = contractor.name[:255]
+    row[12] = name[:40]
+    row[13] = name[:255]
     row[14] = city
     row[15] = postal
     row[16] = street
-    row[17] = contractor.nip[:20]
+    row[17] = _one_line(contractor.nip)[:20]
     row[18] = "Zakup" if kind in PURCHASE_TYPES else "Sprzedaż"
     row[21] = _epp_date(invoice.issue_date)
     row[22] = _epp_date(invoice.delivery_date or invoice.issue_date)
@@ -316,7 +319,7 @@ def _line_row(line: LineItem, code: str) -> list[str]:
     row[6] = "1"
     row[7] = "0.0000"
     row[8] = "0.0000"
-    row[9] = (line.unit or "szt.")[:10]
+    row[9] = _one_line(line.unit or "szt.")[:10]
     row[10] = quantity
     row[11] = quantity
     row[12] = "0.0000"
@@ -391,15 +394,16 @@ def _catalog(contractors: dict[str, object], goods: dict[str, LineItem], endings
 
 def _contractor_row(code: str, party) -> list[str]:
     street, postal, city = _split_address(party.address)
+    name = _one_line(party.name)
     row = [""] * 30
     row[0] = "0"
     row[1] = code
-    row[2] = party.name[:40]
-    row[3] = party.name[:255]
+    row[2] = name[:40]
+    row[3] = name[:255]
     row[4] = city
     row[5] = postal
     row[6] = street
-    row[7] = party.nip
+    row[7] = _one_line(party.nip)
     row[27] = "Polska"
     row[28] = "PL"
     row[29] = "0"
@@ -410,12 +414,13 @@ def _goods_row(code: str, line: LineItem) -> list[str]:
     rate = _plain(line.vat_rate) or "23"
     if "." in rate:
         rate = rate.split(".", 1)[0]
-    name = (line.name or code)[:50]
-    unit = (line.unit or "szt.")[:10]
+    name = _one_line(line.name or code)[:50]
+    unit = _one_line(line.unit or "szt.")[:10]
+    goods_code = _one_line(code)
     row = [""] * 42
     row[0] = "1"
-    row[1] = code
-    row[3] = line.gtin or code
+    row[1] = goods_code
+    row[3] = _one_line(line.gtin) or goods_code
     row[4] = name
     row[6] = name
     row[9] = unit
@@ -442,11 +447,11 @@ def _price_row(code: str, line: LineItem) -> list[str]:
     rate = _money(line.vat_rate)
     net = _money(line.unit_price)
     gross = net * (Decimal("1") + rate / Decimal("100"))
-    return [code, "Detaliczna", _four(net), _four(gross), "0.0000", "0.0000", _four(net)]
+    return [_one_line(code), "Detaliczna", _four(net), _four(gross), "0.0000", "0.0000", _four(net)]
 
 
 def _party_code(party) -> str:
-    return (_digits(party.nip) or party.name or "KONTRAHENT")[:20]
+    return (_digits(party.nip) or _one_line(party.name) or "KONTRAHENT")[:20]
 
 
 def _doc_number(number: str) -> str:
@@ -460,9 +465,10 @@ def _doc_number(number: str) -> str:
 
 
 def _split_address(address: str) -> tuple[str, str, str]:
+    cleaned = _one_line(address)
     parts = [
         part.strip()
-        for part in address.split(",")
+        for part in cleaned.split(",")
         if part.strip() and part.strip() not in {"PL", "Polska"}
     ]
     street = parts[0] if parts else ""
@@ -498,11 +504,27 @@ def _document_identity(invoice: Invoice) -> tuple[str, str]:
     parts = invoice.number.split(" ", 1)
     if len(parts) == 2 and parts[0] in DOCUMENT_TYPES:
         return parts[0], parts[1]
-    return "FS", invoice.number
+    return "FZ", invoice.number
+
+
+def _as_purchase(invoices: tuple[Invoice, ...]) -> tuple[Invoice, ...]:
+    return tuple(replace(invoice, number=_strip_doc_prefix(invoice.number)) for invoice in invoices)
+
+
+def _strip_doc_prefix(number: str) -> str:
+    cleaned = _one_line(number)
+    parts = cleaned.split(" ", 1)
+    if len(parts) == 2 and parts[0] in DOCUMENT_TYPES:
+        return parts[1]
+    return cleaned
+
+
+def _one_line(value: str) -> str:
+    return " ".join(value.replace("\r", " ").replace("\n", " ").split())
 
 
 def _goods_code(index: str, number: str) -> str:
-    code = index.strip() or f"P{number or '0'}"
+    code = _one_line(index) or f"P{_one_line(number) or '0'}"
     return code[:20]
 
 
